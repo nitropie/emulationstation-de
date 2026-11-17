@@ -42,6 +42,15 @@ enum MetaDataType {
     MD_TIME // Used for lastplayed.
 };
 
+// Who owns a metadata key. Shared data is the scraped library and is the same for every profile;
+// personal data belongs to one profile and lives outside the shared gamelists. A key without an
+// owner must never reach a profile-aware code path; a test rejects unclassified keys.
+enum MetaDataOwnership {
+    MD_OWNER_UNCLASSIFIED,
+    MD_OWNER_SHARED,
+    MD_OWNER_PERSONAL
+};
+
 struct MetaDataDecl {
     std::string key;
     MetaDataType type;
@@ -54,7 +63,14 @@ struct MetaDataDecl {
     std::string displayPrompt;
     // If set to false, the scraper will not overwrite this metadata.
     bool shouldScrape;
+    // Declared next to the key; never serialized to the gamelist.
+    MetaDataOwnership ownership {MD_OWNER_UNCLASSIFIED};
 };
+
+inline bool isPersonalMetadata(const MetaDataDecl& decl)
+{
+    return decl.ownership == MD_OWNER_PERSONAL;
+}
 
 enum MetaDataListType {
     GAME_METADATA,

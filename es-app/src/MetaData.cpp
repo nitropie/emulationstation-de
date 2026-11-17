@@ -20,54 +20,56 @@ namespace
     // clang-format off
     // The statistic entries must be placed at the bottom or otherwise there will be problems with
     // saving the values in GuiMetaDataEd.
+    // The ownership column is the profile contract: every key is shared library data or personal
+    // state, and a key left unclassified is rejected by the ownership test.
     MetaDataDecl gameDecls[] {
-    // Key                 Type                 Default value      Statistic  Name in GuiMetaDataEd          Prompt in GuiMetaDataEd             Scrape
-    {"name",               MD_STRING,           "",                false,     "NAME",                        "ENTER NAME",                       true},
-    {"sortname",           MD_STRING,           "",                false,     "SORTNAME",                    "ENTER SORTNAME",                   false},
-    {"collectionsortname", MD_STRING,           "",                false,     "CUSTOM COLLECTIONS SORTNAME", "ENTER COLLECTIONS SORTNAME",       false},
-    {"desc",               MD_MULTILINE_STRING, "",                false,     "DESCRIPTION",                 "ENTER DESCRIPTION",                true},
-    {"rating",             MD_RATING,           "0",               false,     "RATING",                      "ENTER RATING",                     true},
-    {"releasedate",        MD_DATE,             "19700101T000000", false,     "RELEASE DATE",                "ENTER RELEASE DATE",               true},
-    {"developer",          MD_STRING,           "unknown",         false,     "DEVELOPER",                   "ENTER DEVELOPER",                  true},
-    {"publisher",          MD_STRING,           "unknown",         false,     "PUBLISHER",                   "ENTER PUBLISHER",                  true},
-    {"genre",              MD_STRING,           "unknown",         false,     "GENRE",                       "ENTER GENRE",                      true},
-    {"players",            MD_STRING,           "unknown",         false,     "PLAYERS",                     "ENTER NUMBER OF PLAYERS",          true},
-    {"favorite",           MD_BOOL,             "false",           false,     "FAVORITE",                    "ENTER FAVORITE OFF/ON",            false},
-    {"completed",          MD_BOOL,             "false",           false,     "COMPLETED",                   "ENTER COMPLETED OFF/ON",           false},
-    {"kidgame",            MD_BOOL,             "false",           false,     "KIDGAME",                     "ENTER KIDGAME OFF/ON",             false},
-    {"hidden",             MD_BOOL,             "false",           false,     "HIDDEN",                      "ENTER HIDDEN OFF/ON",              false},
-    {"broken",             MD_BOOL,             "false",           false,     "BROKEN/NOT WORKING",          "ENTER BROKEN OFF/ON",              false},
-    {"nogamecount",        MD_BOOL,             "false",           false,     "EXCLUDE FROM GAME COUNTER",   "ENTER DON'T COUNT AS GAME OFF/ON", false},
-    {"nomultiscrape",      MD_BOOL,             "false",           false,     "EXCLUDE FROM MULTI-SCRAPER",  "ENTER NO MULTI-SCRAPE OFF/ON",     false},
-    {"hidemetadata",       MD_BOOL,             "false",           false,     "HIDE METADATA FIELDS",        "ENTER HIDE METADATA OFF/ON",       false},
-    {"playcount",          MD_INT,              "0",               false,     "TIMES PLAYED",                "ENTER NUMBER OF TIMES PLAYED",     false},
-    {"playtime",           MD_INT,              "0",               false,     "PLAY TIME",                   "ENTER PLAY TIME",                  false},
-    {"screen",             MD_SCREEN,           "",                false,     "LAUNCH ON SCREEN",            "LAUNCH ON WHICH SCREEN",           false},
-    {"controller",         MD_CONTROLLER,       "",                false,     "CONTROLLER",                  "SELECT CONTROLLER",                false},
-    {"altemulator",        MD_ALT_EMULATOR,     "",                false,     "ALTERNATIVE EMULATOR",        "SELECT ALTERNATIVE EMULATOR",      false},
-    {"lastplayed",         MD_TIME,             "0",               true,      "LAST PLAYED",                 "ENTER LAST PLAYED DATE",           false}
+    // Key                 Type                 Default value      Statistic  Name in GuiMetaDataEd          Prompt in GuiMetaDataEd             Scrape Owner
+    {"name",               MD_STRING,           "",                false,     "NAME",                        "ENTER NAME",                       true,  MD_OWNER_SHARED},
+    {"sortname",           MD_STRING,           "",                false,     "SORTNAME",                    "ENTER SORTNAME",                   false, MD_OWNER_SHARED},
+    {"collectionsortname", MD_STRING,           "",                false,     "CUSTOM COLLECTIONS SORTNAME", "ENTER COLLECTIONS SORTNAME",       false, MD_OWNER_PERSONAL},
+    {"desc",               MD_MULTILINE_STRING, "",                false,     "DESCRIPTION",                 "ENTER DESCRIPTION",                true,  MD_OWNER_SHARED},
+    {"rating",             MD_RATING,           "0",               false,     "RATING",                      "ENTER RATING",                     true,  MD_OWNER_SHARED},
+    {"releasedate",        MD_DATE,             "19700101T000000", false,     "RELEASE DATE",                "ENTER RELEASE DATE",               true,  MD_OWNER_SHARED},
+    {"developer",          MD_STRING,           "unknown",         false,     "DEVELOPER",                   "ENTER DEVELOPER",                  true,  MD_OWNER_SHARED},
+    {"publisher",          MD_STRING,           "unknown",         false,     "PUBLISHER",                   "ENTER PUBLISHER",                  true,  MD_OWNER_SHARED},
+    {"genre",              MD_STRING,           "unknown",         false,     "GENRE",                       "ENTER GENRE",                      true,  MD_OWNER_SHARED},
+    {"players",            MD_STRING,           "unknown",         false,     "PLAYERS",                     "ENTER NUMBER OF PLAYERS",          true,  MD_OWNER_SHARED},
+    {"favorite",           MD_BOOL,             "false",           false,     "FAVORITE",                    "ENTER FAVORITE OFF/ON",            false, MD_OWNER_PERSONAL},
+    {"completed",          MD_BOOL,             "false",           false,     "COMPLETED",                   "ENTER COMPLETED OFF/ON",           false, MD_OWNER_PERSONAL},
+    {"kidgame",            MD_BOOL,             "false",           false,     "KIDGAME",                     "ENTER KIDGAME OFF/ON",             false, MD_OWNER_SHARED},
+    {"hidden",             MD_BOOL,             "false",           false,     "HIDDEN",                      "ENTER HIDDEN OFF/ON",              false, MD_OWNER_PERSONAL},
+    {"broken",             MD_BOOL,             "false",           false,     "BROKEN/NOT WORKING",          "ENTER BROKEN OFF/ON",              false, MD_OWNER_SHARED},
+    {"nogamecount",        MD_BOOL,             "false",           false,     "EXCLUDE FROM GAME COUNTER",   "ENTER DON'T COUNT AS GAME OFF/ON", false, MD_OWNER_SHARED},
+    {"nomultiscrape",      MD_BOOL,             "false",           false,     "EXCLUDE FROM MULTI-SCRAPER",  "ENTER NO MULTI-SCRAPE OFF/ON",     false, MD_OWNER_SHARED},
+    {"hidemetadata",       MD_BOOL,             "false",           false,     "HIDE METADATA FIELDS",        "ENTER HIDE METADATA OFF/ON",       false, MD_OWNER_PERSONAL},
+    {"playcount",          MD_INT,              "0",               false,     "TIMES PLAYED",                "ENTER NUMBER OF TIMES PLAYED",     false, MD_OWNER_PERSONAL},
+    {"playtime",           MD_INT,              "0",               false,     "PLAY TIME",                   "ENTER PLAY TIME",                  false, MD_OWNER_PERSONAL},
+    {"screen",             MD_SCREEN,           "",                false,     "LAUNCH ON SCREEN",            "LAUNCH ON WHICH SCREEN",           false, MD_OWNER_PERSONAL},
+    {"controller",         MD_CONTROLLER,       "",                false,     "CONTROLLER",                  "SELECT CONTROLLER",                false, MD_OWNER_PERSONAL},
+    {"altemulator",        MD_ALT_EMULATOR,     "",                false,     "ALTERNATIVE EMULATOR",        "SELECT ALTERNATIVE EMULATOR",      false, MD_OWNER_PERSONAL},
+    {"lastplayed",         MD_TIME,             "0",               true,      "LAST PLAYED",                 "ENTER LAST PLAYED DATE",           false, MD_OWNER_PERSONAL}
     };
 
     MetaDataDecl folderDecls[] {
-    // Key            Type                 Default value      Statistic  Name in GuiMetaDataEd            Prompt in GuiMetaDataEd             Scrape
-    {"name",          MD_STRING,           "",                false,     "NAME",                          "ENTER NAME",                       true},
-    {"desc",          MD_MULTILINE_STRING, "",                false,     "DESCRIPTION",                   "ENTER DESCRIPTION",                true},
-    {"rating",        MD_RATING,           "0",               false,     "RATING",                        "ENTER RATING",                     true},
-    {"releasedate",   MD_DATE,             "19700101T000000", false,     "RELEASE DATE",                  "ENTER RELEASE DATE",               true},
-    {"developer",     MD_STRING,           "unknown",         false,     "DEVELOPER",                     "ENTER DEVELOPER",                  true},
-    {"publisher",     MD_STRING,           "unknown",         false,     "PUBLISHER",                     "ENTER PUBLISHER",                  true},
-    {"genre",         MD_STRING,           "unknown",         false,     "GENRE",                         "ENTER GENRE",                      true},
-    {"players",       MD_STRING,           "unknown",         false,     "PLAYERS",                       "ENTER NUMBER OF PLAYERS",          true},
-    {"favorite",      MD_BOOL,             "false",           false,     "FAVORITE",                      "ENTER FAVORITE OFF/ON",            false},
-    {"completed",     MD_BOOL,             "false",           false,     "COMPLETED",                     "ENTER COMPLETED OFF/ON",           false},
-    {"kidgame",       MD_BOOL,             "false",           false,     "KIDGAME (ONLY AFFECTS BADGES)", "ENTER KIDGAME OFF/ON",             false},
-    {"hidden",        MD_BOOL,             "false",           false,     "HIDDEN",                        "ENTER HIDDEN OFF/ON",              false},
-    {"broken",        MD_BOOL,             "false",           false,     "BROKEN/NOT WORKING",            "ENTER BROKEN OFF/ON",              false},
-    {"nomultiscrape", MD_BOOL,             "false",           false,     "EXCLUDE FROM MULTI-SCRAPER",    "ENTER NO MULTI-SCRAPE OFF/ON",     false},
-    {"hidemetadata",  MD_BOOL,             "false",           false,     "HIDE METADATA FIELDS",          "ENTER HIDE METADATA OFF/ON",       false},
-    {"controller",    MD_CONTROLLER,       "",                false,     "CONTROLLER",                    "SELECT CONTROLLER",                false},
-    {"folderlink",    MD_FOLDER_LINK,      "",                false,     "FOLDER LINK",                   "SELECT FOLDER LINK",               false},
-    {"lastplayed",    MD_TIME,             "0",               true,      "LAST PLAYED",                   "ENTER LAST PLAYED DATE",           false}
+    // Key            Type                 Default value      Statistic  Name in GuiMetaDataEd            Prompt in GuiMetaDataEd             Scrape Owner
+    {"name",          MD_STRING,           "",                false,     "NAME",                          "ENTER NAME",                       true,  MD_OWNER_SHARED},
+    {"desc",          MD_MULTILINE_STRING, "",                false,     "DESCRIPTION",                   "ENTER DESCRIPTION",                true,  MD_OWNER_SHARED},
+    {"rating",        MD_RATING,           "0",               false,     "RATING",                        "ENTER RATING",                     true,  MD_OWNER_SHARED},
+    {"releasedate",   MD_DATE,             "19700101T000000", false,     "RELEASE DATE",                  "ENTER RELEASE DATE",               true,  MD_OWNER_SHARED},
+    {"developer",     MD_STRING,           "unknown",         false,     "DEVELOPER",                     "ENTER DEVELOPER",                  true,  MD_OWNER_SHARED},
+    {"publisher",     MD_STRING,           "unknown",         false,     "PUBLISHER",                     "ENTER PUBLISHER",                  true,  MD_OWNER_SHARED},
+    {"genre",         MD_STRING,           "unknown",         false,     "GENRE",                         "ENTER GENRE",                      true,  MD_OWNER_SHARED},
+    {"players",       MD_STRING,           "unknown",         false,     "PLAYERS",                       "ENTER NUMBER OF PLAYERS",          true,  MD_OWNER_SHARED},
+    {"favorite",      MD_BOOL,             "false",           false,     "FAVORITE",                      "ENTER FAVORITE OFF/ON",            false, MD_OWNER_PERSONAL},
+    {"completed",     MD_BOOL,             "false",           false,     "COMPLETED",                     "ENTER COMPLETED OFF/ON",           false, MD_OWNER_PERSONAL},
+    {"kidgame",       MD_BOOL,             "false",           false,     "KIDGAME (ONLY AFFECTS BADGES)", "ENTER KIDGAME OFF/ON",             false, MD_OWNER_SHARED},
+    {"hidden",        MD_BOOL,             "false",           false,     "HIDDEN",                        "ENTER HIDDEN OFF/ON",              false, MD_OWNER_PERSONAL},
+    {"broken",        MD_BOOL,             "false",           false,     "BROKEN/NOT WORKING",            "ENTER BROKEN OFF/ON",              false, MD_OWNER_SHARED},
+    {"nomultiscrape", MD_BOOL,             "false",           false,     "EXCLUDE FROM MULTI-SCRAPER",    "ENTER NO MULTI-SCRAPE OFF/ON",     false, MD_OWNER_SHARED},
+    {"hidemetadata",  MD_BOOL,             "false",           false,     "HIDE METADATA FIELDS",          "ENTER HIDE METADATA OFF/ON",       false, MD_OWNER_PERSONAL},
+    {"controller",    MD_CONTROLLER,       "",                false,     "CONTROLLER",                    "SELECT CONTROLLER",                false, MD_OWNER_PERSONAL},
+    {"folderlink",    MD_FOLDER_LINK,      "",                false,     "FOLDER LINK",                   "SELECT FOLDER LINK",               false, MD_OWNER_SHARED},
+    {"lastplayed",    MD_TIME,             "0",               true,      "LAST PLAYED",                   "ENTER LAST PLAYED DATE",           false, MD_OWNER_PERSONAL}
     };
     // clang-format on
 

@@ -63,6 +63,10 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/views/GamelistView.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/views/SystemView.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/views/ViewController.h
+
+    # Profiles
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileRecordKey.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateStore.h
 )
 
 set(ES_SOURCES
@@ -120,6 +124,9 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/views/GamelistView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/views/SystemView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/views/ViewController.cpp
+
+    # Profiles
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileRecordKey.cpp
 )
 
 if(WIN32)
@@ -428,6 +435,31 @@ else()
     list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION ${CMAKE_INSTALL_PREFIX}/share/metainfo)
     list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION ${CMAKE_INSTALL_PREFIX}/share/pixmaps)
     list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION ${CMAKE_INSTALL_PREFIX}/share/applications)
+endif()
+
+#---------------------------------------------------------------------------------------------------
+# Tests.
+#
+# These cover es-app code that needs the gamelist metadata implementation, so they cannot live in
+# the es-core test executable. The harness is the same plain one used there.
+
+if(BUILD_TESTS)
+    add_executable(es-app-tests
+                   ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests/TestHarness.h
+                   ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests/TestMain.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/src/MetaData.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileRecordKey.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/MetaDataOwnershipTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileRecordKeyTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileStateStoreTests.cpp)
+    target_include_directories(es-app-tests PRIVATE
+                               ${CMAKE_CURRENT_SOURCE_DIR}/src
+                               ${CMAKE_CURRENT_SOURCE_DIR}/tests
+                               ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests)
+    # Same link line as es-app, as linking es-core pulls in the static LunaSVG library.
+    target_link_libraries(es-app-tests ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS} es-core lunasvg::lunasvg)
+    add_test(NAME es-app-tests COMMAND es-app-tests)
+    set_tests_properties(es-app-tests PROPERTIES TIMEOUT 120)
 endif()
 
 include(CPack)

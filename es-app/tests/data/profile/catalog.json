@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "default": "bbb35f7a-a579-4721-8510-2f777c27225a",
+  "libraryRoot": "/var/lib/nitropie/library",
+  "avatarManifest": "/nix/store/avatars/share/nitropie/avatars/avatars.json",
+  "profiles": [
+    {
+      "id": "bbb35f7a-a579-4721-8510-2f777c27225a",
+      "metadata": "/var/lib/nitropie/profiles/bbb35f7a-a579-4721-8510-2f777c27225a/profile.json",
+      "home": "/var/lib/nitropie/profiles/bbb35f7a-a579-4721-8510-2f777c27225a/home",
+      "appdata": "/var/lib/nitropie/profiles/bbb35f7a-a579-4721-8510-2f777c27225a/home/ES-DE",
+      "saves": "/var/lib/nitropie/profiles/bbb35f7a-a579-4721-8510-2f777c27225a/home/saves",
+      "xdgConfigHome": "/var/lib/nitropie/profiles/bbb35f7a-a579-4721-8510-2f777c27225a/home/.config",
+      "xdgDataHome": "/var/lib/nitropie/profiles/bbb35f7a-a579-4721-8510-2f777c27225a/home/.local/share",
+      "xdgStateHome": "/var/lib/nitropie/profiles/bbb35f7a-a579-4721-8510-2f777c27225a/home/.local/state",
+      "xdgCacheHome": "/var/lib/nitropie/profiles/bbb35f7a-a579-4721-8510-2f777c27225a/home/.cache"
+    },
+    {
+      "id": "3f6c2a6e-0e8a-4c5b-9d0a-6f8f0e3b1c2d",
+      "metadata": "/var/lib/nitropie/profiles/3f6c2a6e-0e8a-4c5b-9d0a-6f8f0e3b1c2d/profile.json",
+      "home": "/var/lib/nitropie/profiles/3f6c2a6e-0e8a-4c5b-9d0a-6f8f0e3b1c2d/home",
+      "appdata": "/var/lib/nitropie/profiles/3f6c2a6e-0e8a-4c5b-9d0a-6f8f0e3b1c2d/home/ES-DE",
+      "saves": "/var/lib/nitropie/profiles/3f6c2a6e-0e8a-4c5b-9d0a-6f8f0e3b1c2d/home/saves",
+      "xdgConfigHome": "/var/lib/nitropie/profiles/3f6c2a6e-0e8a-4c5b-9d0a-6f8f0e3b1c2d/home/.config",
+      "xdgDataHome": "/var/lib/nitropie/profiles/3f6c2a6e-0e8a-4c5b-9d0a-6f8f0e3b1c2d/home/.local/share",
+      "xdgStateHome": "/var/lib/nitropie/profiles/3f6c2a6e-0e8a-4c5b-9d0a-6f8f0e3b1c2d/home/.local/state",
+      "xdgCacheHome": "/var/lib/nitropie/profiles/3f6c2a6e-0e8a-4c5b-9d0a-6f8f0e3b1c2d/home/.cache"
+    }
+  ]
+}

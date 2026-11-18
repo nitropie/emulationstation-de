@@ -140,6 +140,12 @@ namespace
 
 namespace
 {
+    std::string parentDirectory(const std::string& path)
+    {
+        const std::size_t separator {path.find_last_of('/')};
+        return separator == std::string::npos ? std::string {"."} : path.substr(0, separator);
+    }
+
     class SystemClock final : public ProfileState::Clock
     {
     public:
@@ -169,4 +175,38 @@ ProfileState::Clock& ProfileState::systemClock()
 {
     static SystemClock clock;
     return clock;
+}
+
+ProfileState::PublishResult ProfileState::publishFileAtomically(FileOperations& files,
+                                                                const std::string& path,
+                                                                const std::string& bytes,
+                                                                const std::string& previousBytes,
+                                                                const bool hasPreviousFile)
+{
+    const std::string tempPath {path + ".tmp"};
+    if (!files.writeFile(tempPath, bytes))
+        return {false, "could not write " + tempPath};
+    if (!files.syncFile(tempPath))
+        return {false, "could not sync " + tempPath};
+
+    if (hasPreviousFile) {
+        // The backup is published atomically too, so a failure cannot leave a truncated .bak.
+        const std::string backupPath {path + ".bak"};
+        const std::string backupTempPath {backupPath + ".tmp"};
+        if (!files.writeFile(backupTempPath, previousBytes))
+            return {false, "could not write " + backupTempPath};
+        if (!files.syncFile(backupTempPath))
+            return {false, "could not sync " + backupTempPath};
+        if (!files.renameFile(backupTempPath, backupPath))
+            return {false, "could not rename " + backupTempPath + " to " + backupPath};
+    }
+
+    if (!files.renameFile(tempPath, path))
+        return {false, "could not rename " + tempPath + " to " + path};
+
+    const std::string directory {parentDirectory(path)};
+    if (!files.syncDirectory(directory))
+        return {false, "could not sync the directory " + directory};
+
+    return {true, ""};
 }

@@ -298,30 +298,10 @@ ProfileState::FlushResult ProfileState::JsonStore::flush()
         mMoveUnusableMainAside = false;
     }
 
-    const std::string tempPath {mPath + ".tmp"};
-    if (!mFiles.writeFile(tempPath, bytes))
-        return {FlushStatus::failure, "could not write " + tempPath};
-    if (!mFiles.syncFile(tempPath))
-        return {FlushStatus::failure, "could not sync " + tempPath};
-
-    if (mHasPreviousFile) {
-        // Write the backup atomically as well, so a failure cannot leave a truncated .bak.
-        const std::string backupPath {mPath + ".bak"};
-        const std::string backupTempPath {backupPath + ".tmp"};
-        if (!mFiles.writeFile(backupTempPath, mPreviousBytes))
-            return {FlushStatus::failure, "could not write " + backupTempPath};
-        if (!mFiles.syncFile(backupTempPath))
-            return {FlushStatus::failure, "could not sync " + backupTempPath};
-        if (!mFiles.renameFile(backupTempPath, backupPath))
-            return {FlushStatus::failure,
-                    "could not rename " + backupTempPath + " to " + backupPath};
-    }
-
-    if (!mFiles.renameFile(tempPath, mPath))
-        return {FlushStatus::failure, "could not rename " + tempPath + " to " + mPath};
-
-    if (!mFiles.syncDirectory(mSession.stateDirectory))
-        return {FlushStatus::failure, "could not sync the directory " + mSession.stateDirectory};
+    const PublishResult published {
+        publishFileAtomically(mFiles, mPath, bytes, mPreviousBytes, mHasPreviousFile)};
+    if (!published.success)
+        return {FlushStatus::failure, published.reason};
 
     mDirty = false;
     mPreviousBytes = bytes;

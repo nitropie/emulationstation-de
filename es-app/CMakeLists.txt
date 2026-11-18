@@ -67,7 +67,11 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/views/ViewController.h
 
     # Profiles
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/AvatarManifest.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileJson.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileMetadata.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileRecordKey.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileSession.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateFile.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJson.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJsonStore.h
@@ -133,7 +137,11 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/views/ViewController.cpp
 
     # Profiles
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/AvatarManifest.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileJson.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileMetadata.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileRecordKey.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileSession.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateFile.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJsonStore.cpp
@@ -458,7 +466,11 @@ if(BUILD_TESTS)
                    ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests/TestHarness.h
                    ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests/TestMain.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/MetaData.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/AvatarManifest.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileJson.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileMetadata.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileRecordKey.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileSession.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateFile.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJson.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJsonStore.cpp
@@ -467,6 +479,9 @@ if(BUILD_TESTS)
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileRecordKeyTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileStateStoreTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileStateJsonStoreTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/AvatarManifestTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileMetadataTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileSessionTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/UiTestScriptTests.cpp)
     target_include_directories(es-app-tests PRIVATE
                                ${CMAKE_CURRENT_SOURCE_DIR}/src

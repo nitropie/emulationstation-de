@@ -8,6 +8,8 @@
 
 #include "profiles/ProfileStateJson.h"
 
+#include "profiles/ProfileJson.h"
+
 #include "rapidjson/document.h"
 #include "rapidjson/error/en.h"
 #include "rapidjson/prettywriter.h"
@@ -23,33 +25,6 @@
 namespace
 {
     using rapidjson::Value;
-
-    using Writer = rapidjson::PrettyWriter<rapidjson::StringBuffer,
-                                           rapidjson::UTF8<>,
-                                           rapidjson::UTF8<>,
-                                           rapidjson::CrtAllocator,
-                                           rapidjson::kWriteValidateEncodingFlag>;
-
-    std::string fragment(const Value& value)
-    {
-        rapidjson::StringBuffer buffer;
-        rapidjson::Writer<rapidjson::StringBuffer, rapidjson::UTF8<>, rapidjson::UTF8<>,
-                          rapidjson::CrtAllocator, rapidjson::kWriteValidateEncodingFlag>
-            writer {buffer};
-        value.Accept(writer);
-        return std::string {buffer.GetString(), buffer.GetSize()};
-    }
-
-    bool emitFragment(Writer& writer, const std::string& text)
-    {
-        rapidjson::Document parsed;
-        if (parsed.Parse<rapidjson::kParseValidateEncodingFlag>(text.c_str(), text.size())
-                .HasParseError())
-            return false;
-
-        parsed.Accept(writer);
-        return true;
-    }
 
     bool isInteger(const Value& value)
     {
@@ -95,23 +70,6 @@ namespace
         return true;
     }
 
-    bool hasDuplicateKeys(const Value& object, std::string& duplicate)
-    {
-        if (!object.IsObject())
-            return false;
-
-        std::set<std::string> keys;
-        for (Value::ConstMemberIterator member {object.MemberBegin()}; member != object.MemberEnd();
-             ++member) {
-            const std::string key {member->name.GetString(), member->name.GetStringLength()};
-            if (!keys.insert(key).second) {
-                duplicate = key;
-                return true;
-            }
-        }
-
-        return false;
-    }
 } // namespace
 
 const MetaDataDecl* ProfileState::personalDecl(const ProfileRecordType type, const std::string& key)
@@ -231,27 +189,12 @@ ProfileState::LoadResult ProfileState::loadDocument(const std::string& bytes,
     document.system = system;
     error.clear();
 
-    if (bytes.empty()) {
-        error = "the state file is empty";
-        return LoadResult::invalid;
-    }
-
     rapidjson::Document parsed;
-    const rapidjson::ParseResult result {
-        parsed.Parse<rapidjson::kParseValidateEncodingFlag>(bytes.c_str(), bytes.size())};
-    if (result.IsError()) {
-        error = std::string {"invalid JSON at offset "} + std::to_string(result.Offset()) + ": " +
-                rapidjson::GetParseError_En(result.Code());
+    if (!ProfileJson::parseObject(bytes, parsed, error))
         return LoadResult::invalid;
-    }
-
-    if (!parsed.IsObject()) {
-        error = "the state file root is not an object";
-        return LoadResult::invalid;
-    }
 
     std::string duplicate;
-    if (hasDuplicateKeys(parsed, duplicate)) {
+    if (ProfileJson::hasDuplicateKeys(parsed, duplicate)) {
         error = "duplicate top-level key \"" + duplicate + "\"";
         return LoadResult::invalid;
     }
@@ -305,7 +248,7 @@ ProfileState::LoadResult ProfileState::loadDocument(const std::string& bytes,
             return LoadResult::invalid;
         }
 
-        if (hasDuplicateKeys(preferences->value, duplicate)) {
+        if (ProfileJson::hasDuplicateKeys(preferences->value, duplicate)) {
             error = "duplicate key \"" + duplicate + "\" in systemPreferences";
             return LoadResult::invalid;
         }
@@ -320,7 +263,7 @@ ProfileState::LoadResult ProfileState::loadDocument(const std::string& bytes,
                     document.alternativeEmulator = member->value.GetString();
                 }
                 else {
-                    document.alternativeEmulatorRaw = fragment(member->value);
+                    document.alternativeEmulatorRaw = ProfileJson::fragment(member->value);
                     document.fileErrors.emplace_back(
                         "systemPreferences.alternativeEmulator is not a string");
                 }
@@ -332,13 +275,14 @@ ProfileState::LoadResult ProfileState::loadDocument(const std::string& bytes,
                     document.launchOnOtherScreen = member->value.GetBool();
                 }
                 else {
-                    document.launchOnOtherScreenRaw = fragment(member->value);
+                    document.launchOnOtherScreenRaw = ProfileJson::fragment(member->value);
                     document.fileErrors.emplace_back(
                         "systemPreferences.launchOnOtherScreen is not a boolean");
                 }
             }
             else {
-                document.extraPreferences.push_back({key, fragment(member->value), true});
+                document.extraPreferences.push_back(
+                    {key, ProfileJson::fragment(member->value), true});
             }
         }
     }
@@ -358,7 +302,7 @@ ProfileState::LoadResult ProfileState::loadDocument(const std::string& bytes,
                 return LoadResult::invalid;
             }
 
-            if (hasDuplicateKeys(value, duplicate)) {
+            if (ProfileJson::hasDuplicateKeys(value, duplicate)) {
                 error = "duplicate key \"" + duplicate + "\" in an entry";
                 return LoadResult::invalid;
             }
@@ -373,7 +317,7 @@ ProfileState::LoadResult ProfileState::loadDocument(const std::string& bytes,
                 return LoadResult::invalid;
             }
 
-            if (hasDuplicateKeys(fields->value, duplicate)) {
+            if (ProfileJson::hasDuplicateKeys(fields->value, duplicate)) {
                 error = "duplicate key \"" + duplicate + "\" in an entry's fields";
                 return LoadResult::invalid;
             }
@@ -399,13 +343,13 @@ ProfileState::LoadResult ProfileState::loadDocument(const std::string& bytes,
                 const std::string key {member->name.GetString()};
                 if (key == "type" || key == "path" || key == "fields")
                     continue;
-                entry.extraKeys.push_back({key, fragment(member->value), true});
+                entry.extraKeys.push_back({key, ProfileJson::fragment(member->value), true});
             }
 
             for (Value::ConstMemberIterator member {fields->value.MemberBegin()};
                  member != fields->value.MemberEnd(); ++member) {
                 const std::string key {member->name.GetString()};
-                JsonField field {key, fragment(member->value), true};
+                JsonField field {key, ProfileJson::fragment(member->value), true};
 
                 const MetaDataDecl* decl {personalDecl(entry.type, key)};
                 if (decl != nullptr && !jsonMatchesMetadataType(*decl, field.value))
@@ -424,7 +368,7 @@ ProfileState::LoadResult ProfileState::loadDocument(const std::string& bytes,
         if (key == "schema" || key == "version" || key == "system" || key == "systemPreferences" ||
             key == "entries")
             continue;
-        document.extraTop.push_back({key, fragment(member->value), true});
+        document.extraTop.push_back({key, ProfileJson::fragment(member->value), true});
     }
 
     document.errors = recordErrors(document);
@@ -452,7 +396,7 @@ std::vector<std::string> ProfileState::recordErrors(const JsonDocument& document
 std::string ProfileState::serializeDocument(const JsonDocument& document)
 {
     rapidjson::StringBuffer buffer;
-    Writer writer {buffer};
+    ProfileJson::Writer writer {buffer};
     writer.SetIndent(' ', 2);
 
     writer.StartObject();
@@ -472,14 +416,14 @@ std::string ProfileState::serializeDocument(const JsonDocument& document)
             writer.String(document.alternativeEmulator.c_str(),
                           static_cast<rapidjson::SizeType>(document.alternativeEmulator.size()));
         else
-            emitFragment(writer, document.alternativeEmulatorRaw);
+            ProfileJson::emitFragment(writer, document.alternativeEmulatorRaw);
     }
     if (document.hasLaunchOnOtherScreen) {
         writer.Key("launchOnOtherScreen");
         if (document.launchOnOtherScreenValid)
             writer.Bool(document.launchOnOtherScreen);
         else
-            emitFragment(writer, document.launchOnOtherScreenRaw);
+            ProfileJson::emitFragment(writer, document.launchOnOtherScreenRaw);
     }
     {
         std::vector<JsonField> extra {document.extraPreferences};
@@ -488,7 +432,7 @@ std::string ProfileState::serializeDocument(const JsonDocument& document)
         });
         for (const JsonField& field : extra) {
             writer.Key(field.key.c_str(), static_cast<rapidjson::SizeType>(field.key.size()));
-            emitFragment(writer, field.value);
+            ProfileJson::emitFragment(writer, field.value);
         }
     }
     writer.EndObject();
@@ -531,7 +475,7 @@ std::string ProfileState::serializeDocument(const JsonDocument& document)
                         continue;
                     writer.Key(field.key.c_str(),
                                static_cast<rapidjson::SizeType>(field.key.size()));
-                    emitFragment(writer, field.value);
+                    ProfileJson::emitFragment(writer, field.value);
                     written.push_back(field.key);
                     break;
                 }
@@ -547,7 +491,7 @@ std::string ProfileState::serializeDocument(const JsonDocument& document)
                 [](const JsonField& left, const JsonField& right) { return left.key < right.key; });
             for (const JsonField& field : extra) {
                 writer.Key(field.key.c_str(), static_cast<rapidjson::SizeType>(field.key.size()));
-                emitFragment(writer, field.value);
+                ProfileJson::emitFragment(writer, field.value);
             }
 
             writer.EndObject();
@@ -558,7 +502,7 @@ std::string ProfileState::serializeDocument(const JsonDocument& document)
                 [](const JsonField& left, const JsonField& right) { return left.key < right.key; });
             for (const JsonField& field : extraKeys) {
                 writer.Key(field.key.c_str(), static_cast<rapidjson::SizeType>(field.key.size()));
-                emitFragment(writer, field.value);
+                ProfileJson::emitFragment(writer, field.value);
             }
 
             writer.EndObject();
@@ -573,7 +517,7 @@ std::string ProfileState::serializeDocument(const JsonDocument& document)
         });
         for (const JsonField& field : extra) {
             writer.Key(field.key.c_str(), static_cast<rapidjson::SizeType>(field.key.size()));
-            emitFragment(writer, field.value);
+            ProfileJson::emitFragment(writer, field.value);
         }
     }
 

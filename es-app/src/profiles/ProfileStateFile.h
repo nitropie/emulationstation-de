@@ -43,6 +43,21 @@ namespace ProfileState
 
     FileOperations& systemFileOperations();
 
+    struct PublishResult {
+        bool success {false};
+        // Why the publish failed. Empty on success.
+        std::string reason;
+    };
+
+    // Publishes a file atomically: a temp file in the same directory, fsync, the previous file
+    // as <path>.bak through its own temp file, an atomic rename and a directory sync. Shared by
+    // the personal-state store and the profile metadata file.
+    PublishResult publishFileAtomically(FileOperations& files,
+                                        const std::string& path,
+                                        const std::string& bytes,
+                                        const std::string& previousBytes,
+                                        bool hasPreviousFile);
+
     // Timestamps for the files a recovery preserves. Injected so tests are deterministic.
     class Clock
     {

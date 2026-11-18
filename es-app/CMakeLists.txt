@@ -68,6 +68,9 @@ set(ES_HEADERS
 
     # Profiles
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileRecordKey.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateFile.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJson.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJsonStore.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateStore.h
 )
 
@@ -131,6 +134,9 @@ set(ES_SOURCES
 
     # Profiles
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileRecordKey.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateFile.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJson.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJsonStore.cpp
 )
 
 if(WIN32)
@@ -453,15 +459,21 @@ if(BUILD_TESTS)
                    ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests/TestMain.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/MetaData.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileRecordKey.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateFile.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJson.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJsonStore.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/UiTestScript.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/MetaDataOwnershipTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileRecordKeyTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileStateStoreTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileStateJsonStoreTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/UiTestScriptTests.cpp)
     target_include_directories(es-app-tests PRIVATE
                                ${CMAKE_CURRENT_SOURCE_DIR}/src
                                ${CMAKE_CURRENT_SOURCE_DIR}/tests
                                ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests)
+    target_compile_definitions(es-app-tests PRIVATE
+                               ES_APP_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
     # Same link line as es-app, as linking es-core pulls in the static LunaSVG library.
     target_link_libraries(es-app-tests ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS} es-core lunasvg::lunasvg)
     add_test(NAME es-app-tests COMMAND es-app-tests)

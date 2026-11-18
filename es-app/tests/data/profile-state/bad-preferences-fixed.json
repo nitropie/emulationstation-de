@@ -1,0 +1,10 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "snes",
+  "systemPreferences": {
+    "alternativeEmulator": 42,
+    "launchOnOtherScreen": false
+  },
+  "entries": []
+}

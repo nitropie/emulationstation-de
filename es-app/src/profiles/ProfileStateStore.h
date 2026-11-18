@@ -6,9 +6,9 @@
 //  Format-independent personal-state store.
 //
 //  A store covers one fixed profile and one system. Personal metadata is applied to a record
-//  from the profile's state and captured back from it; the persistence format (JSON in .8) is
-//  hidden behind this interface. When profile mode is disabled no store is created and the
-//  legacy gamelist adapter is used unchanged.
+//  from the profile's state and captured back from it; the persistence format lives behind this
+//  interface. When profile mode is disabled no store is created and the legacy gamelist adapter
+//  is used unchanged.
 //
 
 #ifndef ES_APP_PROFILES_PROFILE_STATE_STORE_H
@@ -17,6 +17,7 @@
 #include "profiles/ProfileRecordKey.h"
 
 #include <string>
+#include <vector>
 
 class MetaDataList;
 
@@ -34,7 +35,7 @@ namespace ProfileState
         std::string system;
     };
 
-    enum class FlushResult {
+    enum class FlushStatus {
         // The staged changes are durable.
         success,
         // Nothing was staged, so no write was attempted.
@@ -43,12 +44,30 @@ namespace ProfileState
         failure
     };
 
+    struct FlushResult {
+        FlushStatus status {FlushStatus::failure};
+        // Why the write failed. Empty for success and nothingToDo.
+        std::string reason;
+    };
+
     class Store
     {
     public:
         virtual ~Store() = default;
 
         virtual const Session& session() const = 0;
+
+        // False when the state file is too new, corrupt or unreadable. An unresolved store never
+        // overwrites the file and never reports itself as safely switchable.
+        virtual bool isResolved() const = 0;
+
+        // Diagnostics for unresolved files and for records that were kept but not applied, such
+        // as a field whose JSON type does not match its metadata type.
+        virtual const std::vector<std::string>& loadErrors() const = 0;
+
+        // Replaces the in-memory state with the last known good copy and marks it for writing.
+        // Returns false when no readable copy exists, leaving the store unresolved.
+        virtual bool recoverFromBackup() = 0;
 
         // Overlays the profile's personal fields onto the record. A field without a stored value
         // takes its declared default; the shared gamelist is never used as a fallback, so an old

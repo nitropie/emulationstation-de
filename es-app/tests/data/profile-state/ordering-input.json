@@ -1,0 +1,47 @@
+{
+  "zzzTop": "last",
+  "entries": [
+    {
+      "type": "game",
+      "path": "Super Mario World (USA).sfc",
+      "fields": {
+        "favorite": true
+      }
+    },
+    {
+      "zzzEntry": 2,
+      "type": "game",
+      "path": "Hacks/Kaizo Mario World.sfc",
+      "fields": {
+        "zzzField": 42,
+        "lastplayed": "20261116T203000",
+        "playcount": 4,
+        "aaaField": "first"
+      },
+      "aaaEntry": 1
+    },
+    {
+      "type": "folder",
+      "path": "Hacks",
+      "fields": {
+        "hidden": true
+      }
+    },
+    {
+      "type": "game",
+      "path": "Hacks",
+      "fields": {
+        "favorite": true
+      }
+    }
+  ],
+  "systemPreferences": {
+    "zzzPref": false,
+    "alternativeEmulator": "Snes9x - Current",
+    "aaaPref": true
+  },
+  "system": "snes",
+  "version": 1,
+  "schema": "nitropie.profile-state",
+  "aaaTop": "first"
+}

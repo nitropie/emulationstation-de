@@ -1,0 +1,30 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "snes",
+  "systemPreferences": {
+    "alternativeEmulator": "Snes9x - Current",
+    "launchOnOtherScreen": false
+  },
+  "entries": [
+    {
+      "type": "game",
+      "path": "Hacks/Kaizo Mario World.sfc",
+      "fields": {
+        "favorite": true,
+        "playcount": 4,
+        "lastplayed": "20261116T203000"
+      }
+    },
+    {
+      "type": "game",
+      "path": "Super Mario World (USA).sfc",
+      "fields": {
+        "favorite": true,
+        "completed": true,
+        "playcount": 12,
+        "lastplayed": "20261115T191500"
+      }
+    }
+  ]
+}

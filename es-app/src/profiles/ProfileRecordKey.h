@@ -22,6 +22,9 @@ enum class ProfileRecordType {
     folder
 };
 
+// True when the text is valid UTF-8.
+bool isValidUtf8(const std::string& text);
+
 class ProfileRecordKey
 {
 public:

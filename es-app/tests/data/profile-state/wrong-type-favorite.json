@@ -1,0 +1,23 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "snes",
+  "systemPreferences": {},
+  "entries": [
+    {
+      "type": "game",
+      "path": "Broken (USA).sfc",
+      "fields": {
+        "favorite": true,
+        "playcount": "many"
+      }
+    },
+    {
+      "type": "game",
+      "path": "Super Mario World (USA).sfc",
+      "fields": {
+        "favorite": true
+      }
+    }
+  ]
+}

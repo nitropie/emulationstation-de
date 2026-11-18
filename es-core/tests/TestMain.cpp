@@ -51,6 +51,8 @@ int main()
             std::printf("-- FAIL: %s\n", testCase.name.c_str());
             ++failedCases;
         }
+        // Flush after every case so a crash still shows the case that crashed.
+        std::fflush(stdout);
     }
 
     std::printf("-- %zu test case(s), %zu failed\n", TestHarness::testCases().size(), failedCases);

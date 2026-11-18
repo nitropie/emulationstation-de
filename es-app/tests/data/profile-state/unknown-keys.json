@@ -1,0 +1,21 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "snes",
+  "systemPreferences": {
+    "alternativeEmulator": "Snes9x - Current",
+    "futurePreference": { "mode": "keep-me" }
+  },
+  "entries": [
+    {
+      "type": "game",
+      "path": "Super Mario World (USA).sfc",
+      "fields": {
+        "favorite": true,
+        "futureField": [1, 2, 3]
+      },
+      "futureEntry": "keep me too"
+    }
+  ],
+  "futureTop": { "unknown": true }
+}

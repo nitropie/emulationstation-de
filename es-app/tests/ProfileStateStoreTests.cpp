@@ -19,6 +19,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -110,17 +111,21 @@ namespace
         ProfileState::FlushResult flush() override
         {
             if (!mDirty)
-                return ProfileState::FlushResult::nothingToDo;
+                return {ProfileState::FlushStatus::nothingToDo, ""};
 
             if (mFailFlush)
-                return ProfileState::FlushResult::failure;
+                return {ProfileState::FlushStatus::failure, "injected failure"};
 
             mDirty = false;
-            return ProfileState::FlushResult::success;
+            return {ProfileState::FlushStatus::success, ""};
         }
 
         bool hasPendingWrites() const override { return mDirty; }
         bool canSwitchProfile() const override { return !mDirty; }
+
+        bool isResolved() const override { return true; }
+        const std::vector<std::string>& loadErrors() const override { return mErrors; }
+        bool recoverFromBackup() override { return false; }
 
         void failFlush(const bool fail) { mFailFlush = fail; }
 
@@ -132,6 +137,7 @@ namespace
         std::map<ProfileRecordKey, std::map<std::string, std::string>> mRecords;
         bool mDirty {false};
         bool mFailFlush {false};
+        std::vector<std::string> mErrors;
     };
 
     MetaDataList sharedGameRecord()
@@ -199,8 +205,8 @@ TEST_CASE(twoProfilesKeepSeparatePersonalState)
     EXPECT(bobView.get("lastplayed") == "0");
     EXPECT(bobView.get("name") == "Super Mario World");
 
-    EXPECT(alice.flush() == ProfileState::FlushResult::success);
-    EXPECT(bob.flush() == ProfileState::FlushResult::nothingToDo);
+    EXPECT(alice.flush().status == ProfileState::FlushStatus::success);
+    EXPECT(bob.flush().status == ProfileState::FlushStatus::nothingToDo);
     EXPECT(!alice.hasPendingWrites());
     EXPECT(alice.canSwitchProfile());
 
@@ -298,7 +304,7 @@ TEST_CASE(failedFlushKeepsChangesPending)
     store.capture(game, record);
 
     store.failFlush(true);
-    EXPECT(store.flush() == ProfileState::FlushResult::failure);
+    EXPECT(store.flush().status == ProfileState::FlushStatus::failure);
     EXPECT(store.hasPendingWrites());
     EXPECT(!store.canSwitchProfile());
 
@@ -308,7 +314,7 @@ TEST_CASE(failedFlushKeepsChangesPending)
     EXPECT(view.get("favorite") == "true");
 
     store.failFlush(false);
-    EXPECT(store.flush() == ProfileState::FlushResult::success);
+    EXPECT(store.flush().status == ProfileState::FlushStatus::success);
     EXPECT(!store.hasPendingWrites());
     EXPECT(store.canSwitchProfile());
 }
@@ -328,7 +334,7 @@ TEST_CASE(capturingSharedFieldsCreatesNoPersonalRecord)
     EXPECT(!store.hasRecord(game));
     EXPECT(!store.hasPendingWrites());
     EXPECT(store.canSwitchProfile());
-    EXPECT(store.flush() == ProfileState::FlushResult::nothingToDo);
+    EXPECT(store.flush().status == ProfileState::FlushStatus::nothingToDo);
 }
 
 TEST_CASE(capturingDefaultsRemovesTheRecord)

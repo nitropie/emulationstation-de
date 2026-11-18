@@ -1,0 +1,21 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "snes",
+  "entries": [
+    {
+      "type": "game",
+      "path": "Negative (USA).sfc",
+      "fields": {
+        "playcount": -1
+      }
+    },
+    {
+      "type": "game",
+      "path": "Huge (USA).sfc",
+      "fields": {
+        "playtime": 99999999999999999999
+      }
+    }
+  ]
+}

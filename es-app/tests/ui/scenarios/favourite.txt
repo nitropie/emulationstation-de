@@ -1,0 +1,47 @@
+# Sample scenario: enter the gamelist, open the main menu, navigate to a named entry, return
+# and mark the named fixture game as favourite through the normal gamelist action, then quit.
+# The counts are the theme's game and favourite counters.
+
+wait-text "Super Nintendo Entertainment System" 600
+assert-text "Second fixture game."
+assert-text " 2   0"
+key return down
+key return up
+wait-view gamelist 300
+capture gamelist-view
+
+key escape down
+key escape up
+wait-text "MAIN MENU" 120
+assert-text "UI SETTINGS"
+capture menu-open
+
+controller down down
+controller down up
+key return down
+key return up
+wait-text "THEME VARIANT" 120
+assert-text "UI SETTINGS"
+capture ui-settings
+
+key backspace down
+key backspace up
+wait-text "MAIN MENU" 120
+key backspace down
+key backspace up
+wait-view gamelist 300
+capture gamelist-return
+
+key down down
+key down up
+wait-frames 20
+assert-text "Fixture game for the native UI scenario."
+capture game-selected
+
+key insert down
+key insert up
+wait-frames 20
+assert-text " 2   1"
+capture favourite-toggled
+
+quit

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<systemList>
+    <system>
+        <name>snes</name>
+        <fullname>Super Nintendo Entertainment System</fullname>
+        <path>%ROMPATH%/snes</path>
+        <extension>.sfc .SFC</extension>
+        <command>true %ROM%</command>
+        <platform>snes</platform>
+        <theme>snes</theme>
+    </system>
+</systemList>

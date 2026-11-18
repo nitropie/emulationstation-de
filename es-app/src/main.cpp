@@ -36,6 +36,8 @@
 #include "utils/StringUtil.h"
 #include "views/ViewController.h"
 
+#include "UiTestDriver.h"
+
 #include <SDL2/SDL_events.h>
 #include <SDL2/SDL_timer.h>
 
@@ -584,6 +586,8 @@ void applicationLoop()
         AudioManager::getInstance().updateAudioDeviceRecovery(gameLaunching);
 
         window->render();
+
+        UiTest::frame();
 
         renderer->swapBuffers();
         Log::flush();
@@ -1296,6 +1300,7 @@ int main(int argc, char* argv[])
 #endif
 
         if (!SystemData::sStartupExitSignal) {
+            UiTest::initialize();
 #if defined(__EMSCRIPTEN__)
             emscripten_set_main_loop(&applicationLoop, 0, 1);
 #else

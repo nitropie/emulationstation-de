@@ -26,6 +26,8 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/Screensaver.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/SystemData.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/UIModeController.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/UiTestDriver.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/UiTestScript.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/VolumeControl.h
 
     # GUIs
@@ -87,6 +89,8 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/Screensaver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/SystemData.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/UIModeController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/UiTestDriver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/UiTestScript.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/VolumeControl.cpp
 
     # GUIs
@@ -449,9 +453,11 @@ if(BUILD_TESTS)
                    ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests/TestMain.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/MetaData.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileRecordKey.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/src/UiTestScript.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/MetaDataOwnershipTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileRecordKeyTests.cpp
-                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileStateStoreTests.cpp)
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileStateStoreTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/UiTestScriptTests.cpp)
     target_include_directories(es-app-tests PRIVATE
                                ${CMAKE_CURRENT_SOURCE_DIR}/src
                                ${CMAKE_CURRENT_SOURCE_DIR}/tests
@@ -460,6 +466,20 @@ if(BUILD_TESTS)
     target_link_libraries(es-app-tests ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS} es-core lunasvg::lunasvg)
     add_test(NAME es-app-tests COMMAND es-app-tests)
     set_tests_properties(es-app-tests PROPERTIES TIMEOUT 120)
+
+    # Runs the real frontend headless and drives it with injected SDL input.
+    # REQUIRED: a missing interpreter must fail the configure, never skip the UI test.
+    find_program(PYTHON3_EXECUTABLE python3 REQUIRED)
+    if(PYTHON3_EXECUTABLE)
+        add_test(NAME es-ui-tests
+                 COMMAND ${PYTHON3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/run_ui_tests.py
+                         --binary $<TARGET_FILE:es-de>
+                         --fixtures ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/fixtures
+                         --scenarios ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/scenarios
+                         --work-dir ${CMAKE_CURRENT_BINARY_DIR}/ui-tests)
+        set_tests_properties(es-ui-tests PROPERTIES TIMEOUT 300)
+    endif()
 endif()
 
 include(CPack)

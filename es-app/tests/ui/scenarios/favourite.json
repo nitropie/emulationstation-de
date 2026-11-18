@@ -1,0 +1,13 @@
+{
+  "runs": 2,
+  "persisted": {
+    "./F-Zero (USA).sfc": {
+      "name": "F-Zero",
+      "favorite": "false"
+    },
+    "./Super Mario World (USA).sfc": {
+      "name": "Super Mario World",
+      "favorite": "true"
+    }
+  }
+}

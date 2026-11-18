@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<gameList>
+    <alternativeEmulator>
+        <label>Snes9x - Current</label>
+    </alternativeEmulator>
+    <game>
+        <path>./First Game (USA).sfc</path>
+        <name>First Game</name>
+        <desc>First fixture game.</desc>
+        <favorite>true</favorite>
+        <playcount>7</playcount>
+        <lastplayed>20240102T030405</lastplayed>
+        <mysteryTag>keep me</mysteryTag>
+    </game>
+    <game>
+        <path>./Second Game (USA).sfc</path>
+        <name>Second Game</name>
+        <desc>Second fixture game.</desc>
+        <favorite>false</favorite>
+        <completed>true</completed>
+        <playcount>3</playcount>
+        <playtime>1800</playtime>
+        <lastplayed>20240203T040506</lastplayed>
+        <hidden>false</hidden>
+        <scraperNotes>
+            <note>unknown child element</note>
+        </scraperNotes>
+        <mysteryTag>also keep</mysteryTag>
+    </game>
+    <folder>
+        <path>./Hacks</path>
+        <name>Hacks</name>
+        <favorite>true</favorite>
+        <mysteryFolderTag>keep</mysteryFolderTag>
+    </folder>
+    <game>
+        <path>./Hacks/Snes Hack.sfc</path>
+        <name>Snes Hack</name>
+        <favorite>true</favorite>
+        <playcount>9</playcount>
+    </game>
+</gameList>

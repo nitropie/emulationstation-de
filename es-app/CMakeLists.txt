@@ -156,6 +156,25 @@ if(WIN32)
 endif()
 
 #---------------------------------------------------------------------------------------------------
+# Shared application objects.
+#
+# The frontend binary and the test executable compile the same translation units, so the tests can
+# construct the gamelist data structures. Only main() stays target-specific.
+# POSITION_INDEPENDENT_CODE is required because Android links these objects into a MODULE.
+# IOS defines its own target and does not use this library.
+
+if(NOT IOS)
+    set(ES_APP_OBJECT_SOURCES ${ES_SOURCES})
+    # main() and the Windows resource file belong to the executable, not the object library.
+    list(REMOVE_ITEM ES_APP_OBJECT_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
+                     ${CMAKE_CURRENT_SOURCE_DIR}/assets/ES-DE.rc)
+    add_library(es-app-objects OBJECT ${ES_APP_OBJECT_SOURCES} ${ES_HEADERS})
+    set_target_properties(es-app-objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_include_directories(es-app-objects PUBLIC ${COMMON_INCLUDE_DIRS}
+                                                     ${CMAKE_CURRENT_SOURCE_DIR}/src)
+endif()
+
+#---------------------------------------------------------------------------------------------------
 # OS-specific installation and package generation setup.
 
 # Define target.
@@ -163,28 +182,31 @@ if(IOS)
     include(${CMAKE_SOURCE_DIR}/ios/cmake/ios.cmake)
 elseif(APPLE)
     include_directories(${COMMON_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    add_executable(ES-DE ${ES_SOURCES} ${ES_HEADERS})
+    add_executable(ES-DE ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp ${ES_HEADERS})
     target_link_libraries(ES-DE ${COMMON_LIBRARIES} "-framework CoreFoundation -framework IOKit"
                                                     "-framework SystemConfiguration"
-                                                    "-framework IOBluetooth" es-core lunasvg::lunasvg)
+                                                    "-framework IOBluetooth" es-app-objects
+                                                    es-core lunasvg::lunasvg)
     set_target_properties(ES-DE PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
     if(CMAKE_CXX_COMPILER_VERSION GREATER_EQUAL 15.0.0)
         target_link_options(ES-DE PRIVATE LINKER:-no_warn_duplicate_libraries)
     endif()
 elseif(WIN32)
     include_directories(${COMMON_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    add_executable(ES-DE WIN32 ${ES_SOURCES} ${ES_HEADERS})
-    target_link_libraries(ES-DE ${COMMON_LIBRARIES} es-core lunasvg::lunasvg)
+    add_executable(ES-DE WIN32 ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/assets/ES-DE.rc ${ES_HEADERS})
+    target_link_libraries(ES-DE ${COMMON_LIBRARIES} es-app-objects es-core lunasvg::lunasvg)
     set_target_properties(ES-DE PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
 elseif(ANDROID)
     include_directories(${COMMON_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    add_library(main MODULE ${ES_SOURCES} ${ES_HEADERS})
+    add_library(main MODULE ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp ${ES_HEADERS})
     target_link_libraries(main PRIVATE ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS}
-                          es-core es-pdf-convert lunasvg::lunasvg)
+                          es-app-objects es-core es-pdf-convert lunasvg::lunasvg)
 else()
     include_directories(${COMMON_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    add_executable(es-de ${ES_SOURCES} ${ES_HEADERS})
-    target_link_libraries(es-de ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS} es-core lunasvg::lunasvg)
+    add_executable(es-de ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp ${ES_HEADERS})
+    target_link_libraries(es-de ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS} es-app-objects es-core
+                          lunasvg::lunasvg)
     set_target_properties(es-de PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
 endif()
 
@@ -466,20 +488,15 @@ endif()
 # the es-core test executable. The harness is the same plain one used there.
 
 if(BUILD_TESTS)
+    if(NOT TARGET es-app-objects)
+        message(FATAL_ERROR "The es-app tests link es-app-objects, which this platform does not "
+                            "build")
+    endif()
+
     add_executable(es-app-tests
                    ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests/TestHarness.h
                    ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests/TestMain.cpp
-                   ${CMAKE_CURRENT_SOURCE_DIR}/src/MetaData.cpp
-                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/AvatarManifest.cpp
-                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileJson.cpp
-                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileMetadata.cpp
-                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileMode.cpp
-                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileRecordKey.cpp
-                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileSession.cpp
-                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateFile.cpp
-                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJson.cpp
-                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJsonStore.cpp
-                   ${CMAKE_CURRENT_SOURCE_DIR}/src/UiTestScript.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/GamelistSplitTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/MetaDataOwnershipTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileRecordKeyTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileStateStoreTests.cpp
@@ -494,8 +511,10 @@ if(BUILD_TESTS)
                                ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests)
     target_compile_definitions(es-app-tests PRIVATE
                                ES_APP_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
-    # Same link line as es-app, as linking es-core pulls in the static LunaSVG library.
-    target_link_libraries(es-app-tests ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS} es-core lunasvg::lunasvg)
+    # Same link line as es-app, as linking es-core pulls in the static LunaSVG library. The
+    # application objects come first so the linker resolves their es-core references.
+    target_link_libraries(es-app-tests ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS} es-app-objects es-core
+                          lunasvg::lunasvg)
     add_test(NAME es-app-tests COMMAND es-app-tests)
     set_tests_properties(es-app-tests PROPERTIES TIMEOUT 120)
 

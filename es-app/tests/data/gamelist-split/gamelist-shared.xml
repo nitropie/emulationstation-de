@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<gameList>
+	<game>
+		<path>./First Game (USA).sfc</path>
+		<name>First Game</name>
+		<desc>First fixture game.</desc>
+		<mysteryTag>keep me</mysteryTag>
+	</game>
+	<game>
+		<path>./Second Game (USA).sfc</path>
+		<name>Second Game</name>
+		<desc>Second fixture game.</desc>
+		<scraperNotes>
+			<note>unknown child element</note>
+		</scraperNotes>
+		<mysteryTag>also keep</mysteryTag>
+	</game>
+	<folder>
+		<path>./Hacks</path>
+		<name>Hacks</name>
+		<mysteryFolderTag>keep</mysteryFolderTag>
+	</folder>
+	<game>
+		<path>./Hacks/Snes Hack.sfc</path>
+		<name>Snes Hack</name>
+	</game>
+</gameList>

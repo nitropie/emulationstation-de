@@ -17,6 +17,9 @@
 
 #include <pugixml.hpp>
 
+#include <sstream>
+#include <vector>
+
 namespace GamelistFileParser
 {
     FileData* findOrCreateFile(SystemData* system, const std::string& path, FileType type)
@@ -592,6 +595,114 @@ namespace GamelistFileParser
         else {
             LOG(LogError) << "Found no root folder for system \"" << system->getName() << "\"";
         }
+    }
+
+    namespace
+    {
+        // True when the element name is a declared metadata key of the record type.
+        bool isDeclaredKey(const std::string& key, const MetaDataListType type)
+        {
+            for (const MetaDataDecl& decl : getMDDByType(type)) {
+                if (decl.key == key)
+                    return true;
+            }
+
+            return false;
+        }
+
+        // The document entry that belongs to `file`, or an empty node.
+        pugi::xml_node findEntry(pugi::xml_node root,
+                                 const char* tag,
+                                 const FileData& file,
+                                 const std::string& startPath)
+        {
+            for (pugi::xml_node node {root.child(tag)}; node; node = node.next_sibling(tag)) {
+                const pugi::xml_node pathNode {node.child("path")};
+                if (!pathNode)
+                    continue;
+
+                const std::string nodePath {Utils::FileSystem::getCanonicalPath(
+                    Utils::FileSystem::resolveRelativePath(pathNode.text().get(), startPath, true))};
+                if (nodePath == Utils::FileSystem::getCanonicalPath(file.getPath()))
+                    return node;
+            }
+
+            return {};
+        }
+    } // namespace
+
+    std::string writeSharedDocument(const std::string& existingBytes,
+                                    const SystemData& system,
+                                    const std::vector<const FileData*>& records)
+    {
+        pugi::xml_document document;
+        pugi::xml_node root;
+
+        if (!existingBytes.empty()) {
+            const pugi::xml_parse_result result {
+                document.load_buffer(existingBytes.data(), existingBytes.size())};
+            if (!result) {
+                LOG(LogError) << "GamelistFileParser::writeSharedDocument(): Could not parse the "
+                                 "existing gamelist: "
+                              << result.description();
+                return "";
+            }
+
+            root = document.child("gameList");
+            if (!root) {
+                LOG(LogError) << "GamelistFileParser::writeSharedDocument(): Couldn't find a "
+                                 "<gameList> node";
+                return "";
+            }
+        }
+        else {
+            root = document.append_child("gameList");
+        }
+
+        // System preferences are personal state, so the shared document carries none of them.
+        for (pugi::xml_node preference : {document.child("alternativeEmulator"),
+                                          root.child("alternativeEmulator"),
+                                          root.child("launchOnOtherScreen")}) {
+            if (preference)
+                preference.parent().remove_child(preference);
+        }
+
+        for (const FileData* record : records) {
+            if (record == nullptr || record->getType() == PLACEHOLDER)
+                continue;
+
+            const bool isGame {record->getType() == GAME};
+            const char* tag {isGame ? "game" : "folder"};
+            const MetaDataListType type {isGame ? GAME_METADATA : FOLDER_METADATA};
+
+            // Unrecognized children survive the rewrite; the legacy writer drops them.
+            std::vector<pugi::xml_node> unrecognized;
+            const pugi::xml_node existing {findEntry(root, tag, *record, system.getStartPath())};
+            if (existing) {
+                for (pugi::xml_node child {existing.first_child()}; child;
+                     child = child.next_sibling()) {
+                    const std::string name {child.name()};
+                    if (name != "path" && !isDeclaredKey(name, type))
+                        unrecognized.push_back(child);
+                }
+
+                root.remove_child(existing);
+            }
+
+            pugi::xml_node node {root.append_child(tag)};
+            record->metadata.appendToXML(node, true, system.getStartPath(), MD_FILTER_SHARED);
+            node.prepend_child("path").text().set(
+                Utils::FileSystem::createRelativePath(record->getPath(), system.getStartPath(),
+                                                      false)
+                    .c_str());
+            for (pugi::xml_node child : unrecognized)
+                node.append_copy(child);
+        }
+
+        std::ostringstream stream;
+        document.save(stream, "\t", pugi::format_default, pugi::encoding_auto);
+
+        return stream.str();
     }
 
 } // namespace GamelistFileParser

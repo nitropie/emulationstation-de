@@ -129,11 +129,15 @@ MetaDataList MetaDataList::createFromXML(MetaDataListType type,
 
 void MetaDataList::appendToXML(pugi::xml_node& parent,
                                bool ignoreDefaults,
-                               const std::string& relativeTo) const
+                               const std::string& relativeTo,
+                               const MetaDataOwnerFilter filter) const
 {
     const std::vector<MetaDataDecl>& mdd {getMDD()};
 
     for (auto it = mdd.cbegin(); it != mdd.cend(); ++it) {
+        if (filter == MD_FILTER_SHARED && isPersonalMetadata(*it))
+            continue;
+
         auto mapIter = mMap.find(it->key);
         if (mapIter != mMap.cend()) {
             // We have this value!
@@ -155,6 +159,11 @@ void MetaDataList::set(const std::string& key, const std::string& value)
 {
     mMap[key] = value;
     mWasChanged = true;
+}
+
+void MetaDataList::setApplied(const std::string& key, const std::string& value)
+{
+    mMap[key] = value;
 }
 
 const std::string& MetaDataList::get(const std::string& key) const

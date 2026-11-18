@@ -51,6 +51,13 @@ enum MetaDataOwnership {
     MD_OWNER_PERSONAL
 };
 
+// Which keys a serializer emits. The legacy gamelist writer uses MD_FILTER_ALL and its output must
+// stay byte-identical; the offline shared-only writer uses MD_FILTER_SHARED.
+enum MetaDataOwnerFilter {
+    MD_FILTER_ALL,
+    MD_FILTER_SHARED
+};
+
 struct MetaDataDecl {
     std::string key;
     MetaDataType type;
@@ -87,11 +94,15 @@ public:
                                       const std::string& relativeTo);
     void appendToXML(pugi::xml_node& parent,
                      bool ignoreDefaults,
-                     const std::string& relativeTo) const;
+                     const std::string& relativeTo,
+                     const MetaDataOwnerFilter filter = MD_FILTER_ALL) const;
 
     MetaDataList(MetaDataListType type);
 
     void set(const std::string& key, const std::string& value);
+    // Sets a value without setting the change flag. Used when a load-time overlay applies stored
+    // personal state, so a freshly loaded record has nothing pending.
+    void setApplied(const std::string& key, const std::string& value);
 
     const std::string& get(const std::string& key) const;
     int getInt(const std::string& key) const;

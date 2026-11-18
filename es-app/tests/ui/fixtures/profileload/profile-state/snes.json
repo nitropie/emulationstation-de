@@ -1,0 +1,25 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "snes",
+  "systemPreferences": {
+    "alternativeEmulator": "Snes9x - Current",
+    "launchOnOtherScreen": false
+  },
+  "entries": [
+    {
+      "type": "game",
+      "path": "Second Game (USA).sfc",
+      "fields": {
+        "hidden": true
+      }
+    },
+    {
+      "type": "game",
+      "path": "Third Game (USA).sfc",
+      "fields": {
+        "favorite": true
+      }
+    }
+  ]
+}

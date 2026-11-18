@@ -1,0 +1,9 @@
+# The personal state is too new and there is no backup: the gate offers only QUIT, and choosing
+# it exits the application.
+wait-text "THE PROFILE STATE COULD NOT BE LOADED" 600
+assert-text "snes"
+assert-absent "First fixture game."
+capture gate
+expect-exit
+controller a down
+controller a up

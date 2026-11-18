@@ -1,0 +1,12 @@
+{
+  "runs": 2,
+  "profile": {
+    "fixture": "profileunresolved",
+    "id": "bbb35f7a-a579-4721-8510-2f777c27225a",
+    "metadata": "profile.json"
+  },
+  "launch": ["profileunresolved.txt"],
+  "files": [
+    { "path": "appdata/profile-state/snes.json", "golden": "profile-state/snes.json" }
+  ]
+}

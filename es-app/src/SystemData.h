@@ -14,12 +14,19 @@
 
 #include "PlatformId.h"
 #include "ThemeData.h"
+#include "profiles/ProfileRecordKey.h"
 
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
+
+namespace ProfileState
+{
+    class JsonStore;
+}
 
 class FileData;
 class FileFilterIndex;
@@ -193,6 +200,9 @@ public:
     void onMetaDataSavePoint();
     void writeMetaData();
 
+    // The personal state store for this system. Nullptr in legacy mode and for collection systems.
+    ProfileState::JsonStore* personalStore() const { return mPersonalStore; }
+
     void setupSystemSortType(FileData* rootFolder);
 
 private:
@@ -221,6 +231,14 @@ private:
 
     FileData* mRootFolder;
     FileData* mPlaceholder;
+
+    // Profile mode only. Owned by ProfileMode and kept for the whole process.
+    ProfileState::JsonStore* mPersonalStore {nullptr};
+
+    void loadPersonalState();
+    void applyPersonalState(FileData* record);
+    void pruneHiddenEntries();
+    std::optional<ProfileRecordKey> personalKey(FileData& record) const;
 };
 
 #endif // ES_APP_SYSTEM_DATA_H

@@ -39,6 +39,8 @@ public:
     void invalidSystemsFileDialog();
     void noGamesDialog();
     void invalidAlternativeEmulatorDialog();
+    // Profile mode only: the personal state could not be resolved, so the library is not shown.
+    void profileUnresolvedDialog();
     void updateAvailableDialog();
 
     // Try to completely populate the GamelistView map.

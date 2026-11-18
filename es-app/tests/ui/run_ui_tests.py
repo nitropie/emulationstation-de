@@ -91,6 +91,21 @@ def base_environment(home, appdata, run_dir):
     return env
 
 
+def stage_profile_state(fixture_root, appdata):
+    """Copies the fixture's personal state into the staged appdata, when it has one.
+
+    The profile's state directory is created by the launcher in production; the UI fixture
+    provides it, so the frontend never has to create it.
+    """
+    source = os.path.join(fixture_root, "profile-state")
+    if not os.path.isdir(source):
+        return
+    target = os.path.join(appdata, "profile-state")
+    shutil.copytree(source, target, dirs_exist_ok=True)
+    for name in os.listdir(target):
+        os.chmod(os.path.join(target, name), 0o644)
+
+
 def stage_gamelist_data(fixture_root, home, appdata):
     roms = os.path.join(home, "ROMs", "snes")
     for directory in (roms, os.path.join(appdata, "custom_systems"),
@@ -107,6 +122,8 @@ def stage_gamelist_data(fixture_root, home, appdata):
     os.chmod(gamelist, 0o644)
     for rom in glob.glob(os.path.join(fixture_root, "roms", "snes", "*")):
         shutil.copyfile(rom, os.path.join(roms, os.path.basename(rom)))
+
+    stage_profile_state(fixture_root, appdata)
 
 
 def stage_gamelist(fixture_root, run_dir):
@@ -172,7 +189,10 @@ def run_launch(binary, script, env, run_dir, timeout):
         fail(f"the frontend exited with {completed.returncode}")
     if "[ui-test] FAIL" in completed.stdout:
         fail("the scenario reported a failure")
-    if "[ui-test] PASS" not in completed.stdout:
+    # A scenario may declare that the application exits on its own, for example through a dialog
+    # that quits; a clean exit stands in for the PASS line then.
+    expected_exit = "[ui-test] expect-exit" in completed.stdout
+    if "[ui-test] PASS" not in completed.stdout and not expected_exit:
         fail("the scenario did not report a pass")
 
     captures = {}

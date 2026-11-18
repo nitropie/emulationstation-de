@@ -223,6 +223,11 @@ bool UiTest::parseScript(const std::string& script, std::vector<Step>& steps, st
             if (!parsePress(tokens[2], step.pressed, error))
                 return fail(error);
         }
+        else if (verb == "expect-exit") {
+            step.verb = Verb::expectExit;
+            if (tokens.size() != 1)
+                return fail("expect-exit takes no arguments");
+        }
         else if (verb == "quit") {
             step.verb = Verb::quit;
             if (tokens.size() != 1)

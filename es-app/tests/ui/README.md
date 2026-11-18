@@ -66,6 +66,7 @@ are the only escapes.
 | `key NAME down\|up` | Push an SDL keyboard event. Names: `escape`, `return`, `backspace`, `insert`, `delete`, `up`, `down`, `left`, `right`, `pageup`, `pagedown`, `home`, `end`, or any SDL key name. |
 | `controller NAME down\|up` | Push an SDL controller event from an attached virtual controller. Names: `a`, `b`, `x`, `y`, `start`, `back`, `up`, `down`, `left`, `right`, `leftshoulder`, `rightshoulder`. |
 | `text "TEXT"` | Push an SDL text input event. |
+| `expect-exit` | Declare that the application is expected to exit on its own, for example through a dialog that quits. The runner then accepts a clean exit instead of a `PASS` line. |
 | `quit` | Quit through an SDL quit event. |
 
 Frame budgets are bounded (1 to 100000). The parser rejects unknown verbs, missing arguments, bad
@@ -131,6 +132,19 @@ Both are compared byte for byte against the goldens, so an unknown key in the in
 survive and the atomic publisher has to leave the previous bytes in `profile.json.bak`.
 `fixtures/noprofile/` runs without those variables and asserts that the `PROFILE` entry is
 absent.
+
+A fixture may also ship `profile-state/<system>.json`; the runner stages it into the profile's
+appdata and the declared `files` goldens prove that loading the library leaves the personal state
+and the shared gamelist byte-identical. Profile-mode scenarios assert what the overlay does: a
+stored favourite sorts first and appears in the counters, a stored hidden game is absent, and a
+shared gamelist whose stale personal tags or preference elements disagree with the state changes
+nothing on screen.
+
+When a store cannot be resolved (a corrupt or too-new state file), the frontend shows the reason
+before it offers the library and holds off the start view. `profilerecover` presses the first
+dialog button to recover from `.bak`; `profileunresolved` has no backup, so its only button quits
+and the scenario uses `expect-exit`. `noprofile-state-ignored` plants a state file without the
+profile environment and asserts that legacy mode ignores it.
 
 A scenario can launch the frontend more than once over the same staged data. The expectations
 JSON is the scenario; its scripts are named in `launch`, so `profilerestart-part1.txt` and

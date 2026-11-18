@@ -9,8 +9,10 @@
 #include "profiles/ProfileMode.h"
 
 #include "Log.h"
+#include "utils/FileSystemUtil.h"
 
 #include <cstdlib>
+#include <map>
 #include <optional>
 
 namespace
@@ -21,6 +23,8 @@ namespace
     ProfileSession::Context sSession;
     std::optional<ProfileAvatars::Manifest> sManifest;
     std::unique_ptr<ProfileMetadata> sMetadata;
+    // One store per system, in the order of the first request.
+    std::map<std::string, std::unique_ptr<ProfileState::JsonStore>> sStores;
 
     void logProblem(const std::string& problem)
     {
@@ -52,6 +56,7 @@ void ProfileMode::initialize()
     sError.clear();
     sManifest.reset();
     sMetadata.reset();
+    sStores.clear();
 
     const char* catalog {getenv("NITROPIE_PROFILE_CATALOG")};
     const char* id {getenv("NITROPIE_PROFILE_ID")};
@@ -114,6 +119,102 @@ ProfileMetadata* ProfileMode::metadata()
 ProfileAvatars::Manifest* ProfileMode::manifest()
 {
     return sManifest.has_value() ? &*sManifest : nullptr;
+}
+
+ProfileState::JsonStore* ProfileMode::storeForSystem(const std::string& system,
+                                                     const bool collectionSystem)
+{
+    if (!sMode || !sSession.active() || collectionSystem || system.empty())
+        return nullptr;
+
+    const std::map<std::string, std::unique_ptr<ProfileState::JsonStore>>::iterator existing {
+        sStores.find(system)};
+    if (existing != sStores.end())
+        return existing->second.get();
+
+    ProfileState::Session storeSession;
+    storeSession.profileId = sSession.profileId();
+    // The catalog carries H, E and S but not P. P is the parent of H in the layout the launcher
+    // generates; the store itself only uses stateDirectory.
+    storeSession.profileRoot = Utils::FileSystem::getParent(sSession.entry().home);
+    storeSession.stateDirectory = sSession.entry().appdata + "/profile-state";
+    storeSession.system = system;
+
+    std::unique_ptr<ProfileState::JsonStore> store {
+        std::make_unique<ProfileState::JsonStore>(storeSession,
+                                                  ProfileState::systemFileOperations())};
+    ProfileState::JsonStore* result {store.get()};
+    sStores.emplace(system, std::move(store));
+    return result;
+}
+
+bool ProfileMode::storesResolved()
+{
+    if (!sMode)
+        return true;
+
+    if (!sSession.active() || !sResolved)
+        return false;
+
+    for (const std::pair<const std::string, std::unique_ptr<ProfileState::JsonStore>>& entry :
+         sStores) {
+        if (!entry.second->isResolved())
+            return false;
+    }
+
+    return true;
+}
+
+std::string ProfileMode::unresolvedReason()
+{
+    std::string reason;
+
+    if (sMode && !sSession.active())
+        return sSession.error().empty() ? "the profile session is unresolved" : sSession.error();
+
+    if (sMode && !sResolved && !sError.empty())
+        reason = sError;
+
+    for (const std::pair<const std::string, std::unique_ptr<ProfileState::JsonStore>>& entry :
+         sStores) {
+        if (entry.second->isResolved())
+            continue;
+
+        if (!reason.empty())
+            reason += "\n";
+        reason += entry.first + ": ";
+        const std::vector<std::string>& errors {entry.second->loadErrors()};
+        reason += errors.empty() ? "the personal state is unresolved" : errors.front();
+    }
+
+    return reason;
+}
+
+bool ProfileMode::hasRecoverableStore()
+{
+    for (const std::pair<const std::string, std::unique_ptr<ProfileState::JsonStore>>& entry :
+         sStores) {
+        if (!entry.second->isResolved() && entry.second->hasUsableBackup())
+            return true;
+    }
+
+    return false;
+}
+
+bool ProfileMode::recoverStores()
+{
+    for (std::pair<const std::string, std::unique_ptr<ProfileState::JsonStore>>& entry : sStores) {
+        if (entry.second->isResolved())
+            continue;
+
+        if (entry.second->recoverFromBackup())
+            LOG(LogInfo) << "Profile mode: recovered the personal state for \"" << entry.first
+                         << "\" from its backup";
+        else
+            logProblem("could not recover the personal state for \"" + entry.first + "\"");
+    }
+
+    return storesResolved();
 }
 
 bool ProfileMode::reloadMetadata()

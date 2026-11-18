@@ -1,0 +1,7 @@
+{
+  "runs": 2,
+  "launch": ["noprofile-state-ignored.txt"],
+  "files": [
+    { "path": "appdata/profile-state/snes.json", "golden": "profile-state/snes.json" }
+  ]
+}

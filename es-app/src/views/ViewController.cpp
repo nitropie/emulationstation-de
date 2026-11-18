@@ -12,6 +12,8 @@
 
 #include "views/ViewController.h"
 
+#include "profiles/ProfileMode.h"
+
 #include "ApplicationUpdater.h"
 #include "AudioManager.h"
 #include "CollectionSystemsManager.h"
@@ -406,6 +408,53 @@ void ViewController::noGamesDialog()
 #endif
 
     mWindow->pushGui(mNoGamesMessageBox);
+}
+
+void ViewController::profileUnresolvedDialog()
+{
+    std::string message {
+        _("THE PROFILE STATE COULD NOT BE LOADED, SO THE GAME LIBRARY IS NOT SHOWN.")};
+    message += "\n\n" + ProfileMode::unresolvedReason();
+
+    const bool recoverable {ProfileMode::hasRecoverableStore()};
+    if (recoverable) {
+        message += "\n\n" +
+                   _("A BACKUP IS AVAILABLE. RECOVERING IT RESTORES THE LAST GOOD COPY AND "
+                     "DISCARDS THE CHANGES THAT COULD NOT BE READ.");
+    }
+
+    const auto quit = [] {
+        SDL_Event quitEvent {};
+        quitEvent.type = SDL_QUIT;
+        SDL_PushEvent(&quitEvent);
+    };
+
+    // Recovery re-reads the library with the recovered state applied.
+    const auto recover = [this] {
+        if (ProfileMode::recoverStores()) {
+            LOG(LogInfo) << "The profile state was recovered from its backup";
+            rescanROMDirectory();
+        }
+        else {
+            LOG(LogError) << "The profile state is still unresolved: "
+                          << ProfileMode::unresolvedReason();
+            profileUnresolvedDialog();
+        }
+    };
+
+    const float widthMultiplier {mRenderer->getIsVerticalOrientation() ?
+                                     0.85f :
+                                     0.55f * (1.778f / mRenderer->getScreenAspectRatio())};
+
+    if (recoverable) {
+        mWindow->pushGui(new GuiMsgBox(message, _("RECOVER FROM BACKUP"), recover, _("QUIT"),
+                                       quit, "", nullptr, "", nullptr, nullptr, true, true,
+                                       widthMultiplier));
+    }
+    else {
+        mWindow->pushGui(new GuiMsgBox(message, _("QUIT"), quit, "", nullptr, "", nullptr, "",
+                                       nullptr, nullptr, true, true, widthMultiplier));
+    }
 }
 
 void ViewController::invalidAlternativeEmulatorDialog()

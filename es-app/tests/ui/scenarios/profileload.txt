@@ -1,0 +1,17 @@
+# Profile mode: the state overlay decides favourites and visibility. The stored favourite sorts
+# first, the stored hidden game is filtered, and the stale favourite and playcount in the shared
+# gamelist are reset, so the counters show three games and one favourite.
+wait-text "Super Nintendo Entertainment System" 600
+assert-text "Third fixture game."
+assert-absent "Second fixture game."
+assert-text " 3   1"
+capture system-view
+key return down
+key return up
+wait-view gamelist 300
+key down down
+key down up
+wait-frames 20
+assert-text "First fixture game."
+capture gamelist-view
+quit

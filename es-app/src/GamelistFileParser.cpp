@@ -12,6 +12,7 @@
 #include "Log.h"
 #include "Settings.h"
 #include "SystemData.h"
+#include "profiles/ProfileMode.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/StringUtil.h"
 
@@ -320,7 +321,11 @@ namespace GamelistFileParser
                 // games, then delete the entry. This leaves no trace of the entry at all in ES
                 // but that is fine as the option to show hidden files is defined as requiring an
                 // application restart.
-                if (!Settings::getInstance()->getBool("ShowHiddenGames")) {
+                // Profile mode keeps this order-dependent pruning off: hidden tags in the shared
+                // XML are stale personal data, and SystemData::pruneHiddenEntries() removes the
+                // entries in one pass after the overlay. The legacy path is unchanged.
+                if (!ProfileMode::isMode() &&
+                    !Settings::getInstance()->getBool("ShowHiddenGames")) {
                     if (file->getHidden()) {
                         LOG(LogDebug)
                             << "GamelistFileParser::parseGamelist(): Skipping hidden "

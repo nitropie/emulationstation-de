@@ -10,6 +10,7 @@
 //
 
 #include "TestHarness.h"
+#include "TestEnvironment.h"
 
 #include "FileData.h"
 #include "GamelistFileParser.h"
@@ -31,15 +32,14 @@ namespace
 {
     namespace fs = std::filesystem;
 
-    // The application data directory is resolved once per process, so the environment is set
-    // before the first reader runs and every fixture reuses the same root.
+    // The ROM tree is staged per fixture; the application data directory is the one the shared
+    // test environment set up for the whole process.
     const fs::path& fixtureRoot()
     {
         static const fs::path root {[] {
             const fs::path path {fs::temp_directory_path() / "es-de-gamelist-split"};
             fs::remove_all(path);
             fs::create_directories(path);
-            setenv("ESDE_APPDATA_DIR", (path / "appdata").c_str(), 1);
             return path;
         }()};
 
@@ -83,9 +83,9 @@ namespace
         Fixture()
         {
             const fs::path root {fixtureRoot()};
-            fs::remove_all(root);
+            fs::remove_all(root / "roms");
             roms = root / "roms" / "snes";
-            gamelist = root / "appdata" / "gamelists" / "snes" / "gamelist.xml";
+            gamelist = TestEnvironment::appDataDirectory() / "gamelists" / "snes" / "gamelist.xml";
 
             writeFile(roms / "First Game (USA).sfc", "");
             writeFile(roms / "Second Game (USA).sfc", "");

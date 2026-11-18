@@ -22,11 +22,15 @@ namespace
         return type == ProfileRecordType::game ? GAME_METADATA : FOLDER_METADATA;
     }
 
+    // The overlay resets every personal field to its declared default without setting a change
+    // flag: a freshly loaded profile has nothing pending.
+    // The overlay resets every personal field to its declared default without setting a change
+    // flag: a freshly loaded profile has nothing pending.
     void applyDefaults(MetaDataList& record)
     {
         for (const MetaDataDecl& decl : record.getMDD()) {
             if (isPersonalMetadata(decl))
-                record.set(decl.key, decl.defaultValue);
+                record.setApplied(decl.key, decl.defaultValue);
         }
     }
 
@@ -161,7 +165,8 @@ void ProfileState::JsonStore::apply(const ProfileRecordKey& key, MetaDataList& r
             break;
         }
 
-        record.set(decl.key, applied ? value : decl.defaultValue);
+        // A freshly loaded record has nothing pending: the overlay never sets the change flag.
+        record.setApplied(decl.key, applied ? value : decl.defaultValue);
     }
 }
 
@@ -308,6 +313,21 @@ ProfileState::FlushResult ProfileState::JsonStore::flush()
     mHasPreviousFile = true;
 
     return {FlushStatus::success, ""};
+}
+
+bool ProfileState::JsonStore::hasUsableBackup() const
+{
+    const std::string backupPath {mPath + ".bak"};
+    std::string bytes;
+    if (mFiles.readFile(backupPath, bytes) != ReadStatus::ok)
+        return false;
+
+    JsonDocument document;
+    std::string error;
+    if (loadDocument(bytes, mSession.system, document, error) != LoadResult::loaded)
+        return false;
+
+    return !document.unresolved;
 }
 
 bool ProfileState::JsonStore::recoverFromBackup()

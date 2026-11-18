@@ -20,6 +20,8 @@
 #include "Settings.h"
 #include "ThemeData.h"
 #include "UIModeController.h"
+#include "profiles/ProfileMode.h"
+#include "profiles/ProfileStateJsonStore.h"
 #include "resources/ResourceManager.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
@@ -567,6 +569,10 @@ SystemData::SystemData(const std::string& name,
         if (!Settings::getInstance()->getBool("IgnoreGamelist"))
             GamelistFileParser::parseGamelist(this);
 
+        // The profile overlay runs before anything derives visibility, ordering or indexes from
+        // the metadata.
+        loadPersonalState();
+
         setupSystemSortType(mRootFolder);
 
         mRootFolder->sort(mRootFolder->getSortTypeFromString(mRootFolder->getSortTypeString()),
@@ -608,6 +614,133 @@ void SystemData::setIsGameSystemStatus()
     // Reserved for future use, could be used to exclude certain systems from some operations,
     // such as dedicated tools systems and similar.
     mIsGameSystem = true;
+}
+
+std::optional<ProfileRecordKey> SystemData::personalKey(FileData& record) const
+{
+    if (record.getType() != GAME && record.getType() != FOLDER)
+        return std::nullopt;
+
+    // A collection entry is a view over its source game and never owns a record of its own.
+    FileData& source {*record.getSourceFileData()};
+    const SystemData* system {source.getSystem()};
+    if (system == nullptr)
+        return std::nullopt;
+
+    // The system root has no record of its own.
+    const std::string& startPath {system->getStartPath()};
+    if (source.getPath() == startPath)
+        return std::nullopt;
+
+    bool contains {false};
+    const std::string relative {
+        Utils::FileSystem::removeCommonPath(source.getPath(), startPath, contains)};
+    if (!contains) {
+        LOG(LogError) << "SystemData::personalKey(): \"" << source.getPath()
+                      << "\" is outside the system root \"" << startPath << "\"";
+        return std::nullopt;
+    }
+
+    return ProfileRecordKey::fromPath(
+        system->getName(),
+        source.getType() == GAME ? ProfileRecordType::game : ProfileRecordType::folder, relative);
+}
+
+void SystemData::applyPersonalState(FileData* record)
+{
+    if (record == nullptr || mPersonalStore == nullptr)
+        return;
+
+    if (record->getType() == GAME || record->getType() == FOLDER) {
+        const std::optional<ProfileRecordKey> key {personalKey(*record)};
+        if (key.has_value())
+            mPersonalStore->apply(*key, record->metadata);
+    }
+
+    for (FileData* child : record->getChildren())
+        applyPersonalState(child);
+}
+
+namespace
+{
+    // Removes hidden entries and leaves no empty folder behind, bottom up. Profile mode only: the
+    // legacy loader prunes while it parses, which is order dependent.
+    void pruneFolder(FileData* folder)
+    {
+        for (FileData* child : std::vector<FileData*>(folder->getChildren())) {
+            if (child->getNoLoad())
+                continue;
+
+            if (child->getType() == GAME) {
+                if (child->getHidden())
+                    delete child;
+            }
+            else if (child->getType() == FOLDER) {
+                if (child->getHidden()) {
+                    delete child;
+                }
+                else {
+                    pruneFolder(child);
+                    if (child->getChildren().empty())
+                        delete child;
+                }
+            }
+        }
+    }
+} // namespace
+
+void SystemData::pruneHiddenEntries()
+{
+    if (Settings::getInstance()->getBool("ShowHiddenGames"))
+        return;
+
+    pruneFolder(mRootFolder);
+}
+
+void SystemData::loadPersonalState()
+{
+    // Collection systems never own a store: their entries are views over a source game.
+    if (!ProfileMode::isMode() || mIsCollectionSystem)
+        return;
+
+    mPersonalStore = ProfileMode::storeForSystem(mName, mIsCollectionSystem);
+    if (mPersonalStore == nullptr)
+        return;
+
+    applyPersonalState(mRootFolder);
+
+    // Nothing personal is inherited from the shared gamelist: reset the system preferences, then
+    // apply the profile's.
+    mAlternativeEmulator.clear();
+    mLaunchOnOtherScreen = true;
+
+    if (mPersonalStore->hasAlternativeEmulator()) {
+        const std::string& label {mPersonalStore->alternativeEmulator()};
+        bool configured {false};
+        for (const std::pair<std::string, std::string>& command : mEnvData->mLaunchCommands) {
+            if (command.second == label) {
+                configured = true;
+                break;
+            }
+        }
+
+        if (configured) {
+            mAlternativeEmulator = label;
+        }
+        else {
+            // The marker is shown by the alternative-emulator menu and used by the launch
+            // fallback. It must never go through setAlternativeEmulator(), which stores a choice.
+            mAlternativeEmulator = "<INVALID>" + label;
+            LOG(LogWarning) << "SystemData::loadPersonalState(): system \"" << mName
+                            << "\" has an invalid stored alternative emulator \"" << label
+                            << "\", the configured default is used";
+        }
+    }
+
+    if (mPersonalStore->hasLaunchOnOtherScreen())
+        mLaunchOnOtherScreen = mPersonalStore->launchOnOtherScreen();
+
+    pruneHiddenEntries();
 }
 
 bool SystemData::populateFolder(FileData* folder)

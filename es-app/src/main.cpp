@@ -1194,6 +1194,16 @@ int main(int argc, char* argv[])
     ThemeData::populateThemes();
     loadSystemsReturnCode loadSystemsStatus {loadSystemConfigFile()};
 
+    // A profile whose personal state could not be resolved must not show its library. The gate is
+    // shown after the views exist so the window can render, and it holds off the start view until
+    // the state is resolved.
+    const bool profileStateBlocked {loadSystemsStatus == loadSystemsReturnCode::LOADING_OK &&
+                                    ProfileMode::isMode() && !ProfileMode::storesResolved()};
+    if (profileStateBlocked) {
+        LOG(LogError) << "Profile state is unresolved, the library is not shown: "
+                      << ProfileMode::unresolvedReason();
+    }
+
     if (!SystemData::sStartupExitSignal) {
         if (loadSystemsStatus) {
             // If there was an issue parsing the es_systems.xml file, display an error message.
@@ -1213,22 +1223,28 @@ int main(int argc, char* argv[])
 
         // Preload system view and all gamelist views.
         ViewController::getInstance()->preload();
+
+        if (profileStateBlocked)
+            ViewController::getInstance()->profileUnresolvedDialog();
     }
 
     if (!SystemData::sStartupExitSignal) {
         if (loadSystemsStatus == loadSystemsReturnCode::LOADING_OK)
             ThemeData::themeLoadedLogOutput();
 
-        if (!loadSystemsStatus)
+        if (!loadSystemsStatus && !profileStateBlocked)
             ViewController::getInstance()->goToStart(true);
 
         // Check if any of the enabled systems have an invalid alternative emulator entry,
         // which means that a label is present in the gamelist.xml file which is not matching
-        // any command tag in es_systems.xml.
-        for (auto system : SystemData::sSystemVector) {
-            if (system->getAlternativeEmulator().substr(0, 9) == "<INVALID>") {
-                ViewController::getInstance()->invalidAlternativeEmulatorDialog();
-                break;
+        // any command tag in es_systems.xml. Profile mode shows an invalid stored label where the
+        // choice is made, so this shared-gamelist diagnostic is legacy only.
+        if (!ProfileMode::isMode()) {
+            for (auto system : SystemData::sSystemVector) {
+                if (system->getAlternativeEmulator().substr(0, 9) == "<INVALID>") {
+                    ViewController::getInstance()->invalidAlternativeEmulatorDialog();
+                    break;
+                }
             }
         }
 

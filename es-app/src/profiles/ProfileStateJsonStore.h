@@ -42,6 +42,10 @@ namespace ProfileState
         bool hasPendingWrites() const override { return mDirty; }
         bool canSwitchProfile() const override { return mResolved && !mDirty; }
 
+        // True when a backup exists that this reader can load. Does not change the store, so a
+        // caller can offer a recovery instead of performing one.
+        bool hasUsableBackup() const;
+
         bool hasAlternativeEmulator() const
         {
             return mDocument.hasAlternativeEmulator && mDocument.alternativeEmulatorValid;

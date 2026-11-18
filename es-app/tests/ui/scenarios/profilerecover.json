@@ -1,0 +1,13 @@
+{
+  "runs": 2,
+  "profile": {
+    "fixture": "profilerecover",
+    "id": "bbb35f7a-a579-4721-8510-2f777c27225a",
+    "metadata": "profile.json"
+  },
+  "launch": ["profilerecover.txt"],
+  "files": [
+    { "path": "appdata/profile-state/snes.json", "golden": "profile-state/snes.json" },
+    { "path": "appdata/profile-state/snes.json.bak", "golden": "profile-state/snes.json.bak" }
+  ]
+}

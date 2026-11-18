@@ -497,6 +497,8 @@ if(BUILD_TESTS)
                    ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests/TestHarness.h
                    ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests/TestMain.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/GamelistSplitTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileLoadTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEnvironment.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/MetaDataOwnershipTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileRecordKeyTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileStateStoreTests.cpp

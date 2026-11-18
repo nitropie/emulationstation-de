@@ -1,0 +1,14 @@
+# The personal state is too new to read, so the gate blocks the library and offers a recovery.
+# A usable backup exists, so the first button recovers it and the library is rebuilt with the
+# recovered overlay.
+wait-text "THE PROFILE STATE COULD NOT BE LOADED" 600
+assert-text "snes"
+capture gate
+controller a down
+controller a up
+wait-text "Super Nintendo Entertainment System" 300
+assert-text "Third fixture game."
+assert-absent "Second fixture game."
+assert-text " 3   1"
+capture recovered
+quit

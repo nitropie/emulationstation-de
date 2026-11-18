@@ -28,6 +28,7 @@ namespace UiTest
         key,
         controller,
         text,
+        expectExit,
         quit
     };
 

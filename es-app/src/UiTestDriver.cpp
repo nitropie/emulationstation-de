@@ -36,6 +36,9 @@ namespace
     bool sEnabled {false};
     bool sFailed {false};
     bool sFinished {false};
+    // The scenario expects the application to exit on its own, for example through a dialog that
+    // quits. The runner accepts a clean exit instead of a PASS line in that case.
+    bool sExitExpected {false};
     std::vector<UiTest::Step> sSteps;
     std::size_t sIndex {0};
     int sFrame {0};
@@ -420,6 +423,12 @@ void UiTest::frame()
                 ++sIndex;
                 break;
             }
+            case Verb::expectExit: {
+                std::printf("[ui-test] expect-exit\n");
+                sExitExpected = true;
+                ++sIndex;
+                break;
+            }
             case Verb::quit: {
                 std::printf("[ui-test] PASS %zu steps\n", sSteps.size());
                 sFinished = true;
@@ -430,7 +439,7 @@ void UiTest::frame()
         }
     }
 
-    if (!sFinished && sIndex >= sSteps.size()) {
+    if (!sFinished && sIndex >= sSteps.size() && !sExitExpected) {
         const Step last {sSteps.back()};
         fail(last, "the script ended without quit");
     }

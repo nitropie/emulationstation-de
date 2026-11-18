@@ -47,12 +47,13 @@ TEST_CASE(everyScenarioVerbParses)
                               "controller down down\n"
                               "controller down up\n"
                               "text \"David\"\n"
+                              "expect-exit\n"
                               "quit\n"};
 
     std::vector<UiTest::Step> steps;
     std::string error;
     EXPECT(UiTest::parseScript(script, steps, error));
-    EXPECT(steps.size() == 12);
+    EXPECT(steps.size() == 13);
 
     EXPECT(steps[0].verb == UiTest::Verb::waitFrames && steps[0].frames == 5);
     EXPECT(steps[1].verb == UiTest::Verb::waitView && steps[1].text == "gamelist" &&
@@ -69,7 +70,8 @@ TEST_CASE(everyScenarioVerbParses)
     EXPECT(steps[9].verb == UiTest::Verb::controller && steps[9].name == "down" &&
            !steps[9].pressed);
     EXPECT(steps[10].verb == UiTest::Verb::text && steps[10].text == "David");
-    EXPECT(steps[11].verb == UiTest::Verb::quit);
+    EXPECT(steps[11].verb == UiTest::Verb::expectExit);
+    EXPECT(steps[12].verb == UiTest::Verb::quit);
 }
 
 TEST_CASE(quotedArgumentsDecodeEscapes)
@@ -120,6 +122,12 @@ TEST_CASE(trailingArgumentIsRejected)
     EXPECT(parseError("assert-text \"MAIN MENU\" extra\n").find("one argument") !=
            std::string::npos);
     EXPECT(parseError("capture a b\n").find("one name") != std::string::npos);
+}
+
+TEST_CASE(expectExitTakesNoArguments)
+{
+    EXPECT(parseError("expect-exit now\n").find("no arguments") != std::string::npos);
+    EXPECT(parseError("expect-exit \"quit\"\n").find("no arguments") != std::string::npos);
 }
 
 TEST_CASE(emptyArgumentIsRejected)

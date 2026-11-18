@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<gameList>
+    <alternativeEmulator>
+        <label>Stale Emulator</label>
+    </alternativeEmulator>
+    <launchOnOtherScreen>false</launchOnOtherScreen>
+    <game>
+        <path>./First Game (USA).sfc</path>
+        <name>First Game</name>
+        <desc>First fixture game.</desc>
+        <favorite>true</favorite>
+        <playcount>7</playcount>
+        <lastplayed>20240102T030405</lastplayed>
+        <mysteryTag>keep me</mysteryTag>
+    </game>
+    <game>
+        <path>./Second Game (USA).sfc</path>
+        <name>Second Game</name>
+        <desc>Second fixture game.</desc>
+        <favorite>false</favorite>
+        <hidden>false</hidden>
+    </game>
+    <game>
+        <path>./Hidden Folder/Hidden Child.sfc</path>
+        <name>Hidden Child</name>
+    </game>
+    <game>
+        <path>./Visible Folder/Visible Child.sfc</path>
+        <name>Visible Child</name>
+        <completed>true</completed>
+    </game>
+    <game>
+        <path>./Secret/Deep/A.sfc</path>
+        <name>A</name>
+        <hidden>true</hidden>
+    </game>
+    <folder>
+        <path>./Hidden Folder</path>
+        <name>Hidden Folder</name>
+        <hidden>true</hidden>
+    </folder>
+    <folder>
+        <path>./Visible Folder</path>
+        <name>Visible Folder</name>
+        <mysteryFolderTag>keep</mysteryFolderTag>
+    </folder>
+    <folder>
+        <path>./Secret</path>
+        <name>Secret</name>
+    </folder>
+    <folder>
+        <path>./Secret/Deep</path>
+        <name>Deep</name>
+    </folder>
+</gameList>

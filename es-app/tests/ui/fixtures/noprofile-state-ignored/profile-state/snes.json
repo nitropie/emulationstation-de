@@ -1,0 +1,24 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "snes",
+  "systemPreferences": {
+    "alternativeEmulator": "Snes9x - Current"
+  },
+  "entries": [
+    {
+      "type": "game",
+      "path": "F-Zero (USA).sfc",
+      "fields": {
+        "favorite": true
+      }
+    },
+    {
+      "type": "game",
+      "path": "Super Mario World (USA).sfc",
+      "fields": {
+        "hidden": true
+      }
+    }
+  ]
+}

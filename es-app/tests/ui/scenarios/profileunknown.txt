@@ -1,0 +1,63 @@
+# A stored avatar id that the manifest does not contain is shown as the manifest default and is
+# kept when the name is changed. The fixture's metadata file names "future-avatar".
+wait-text "Super Nintendo Entertainment System" 600
+key escape down
+key escape up
+wait-text "MAIN MENU" 120
+assert-text "PROFILE"
+key return down
+key return up
+wait-text "NAME   David" 120
+assert-text "Dog"
+capture profile-screen
+
+# Rename with the controller-driven keyboard exactly as in profilename.txt.
+key return down
+key return up
+wait-text "PROFILE NAME" 120
+wait-text "David" 120
+controller down down
+controller down up
+wait-frames 2
+controller right down
+controller right up
+controller right down
+controller right up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+wait-frames 2
+controller a down
+controller a up
+wait-frames 2
+assert-text "David "
+controller up down
+controller up up
+controller up down
+controller up up
+controller up down
+controller up up
+controller up down
+controller up up
+controller left down
+controller left up
+wait-frames 2
+controller a down
+controller a up
+wait-frames 2
+assert-text "David 2"
+controller up down
+controller up up
+wait-frames 2
+controller a down
+controller a up
+wait-text "SAVED" 120
+assert-text "David 2"
+assert-text "Dog"
+capture unknown-avatar
+quit

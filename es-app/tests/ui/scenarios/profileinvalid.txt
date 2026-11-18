@@ -1,0 +1,69 @@
+# An empty display name is rejected with a visible message and leaves the metadata file alone.
+#
+# The on-screen keyboard is driven with the controller, as in profilename.txt. From "1" the
+# path goes to the SPACE key in row 4, whose grid entry spans columns 2-9, so a single Right
+# from it lands on the CLEAR key.
+wait-text "Super Nintendo Entertainment System" 600
+key escape down
+key escape up
+wait-text "MAIN MENU" 120
+assert-text "PROFILE"
+# The first Return opens the PROFILE screen, the second the on-screen keyboard.
+key return down
+key return up
+wait-text "NAME   David" 120
+capture profile-screen
+key return down
+key return up
+wait-text "PROFILE NAME" 120
+wait-text "David" 120
+
+# Down selects "1" (column 0, row 0); right twice to column 2, down four times to SPACE.
+controller down down
+controller down up
+wait-frames 2
+controller right down
+controller right up
+controller right down
+controller right up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+wait-frames 2
+# Right from the eight-column SPACE key selects CLEAR.
+controller right down
+controller right up
+wait-frames 2
+capture clear-focused
+
+# Clear the field and check that the popup no longer shows the stored name.
+controller a down
+controller a up
+wait-frames 2
+assert-absent "David"
+capture cleared
+
+# Up five times leaves the keyboard grid for the name field, where A accepts the edit.
+controller up down
+controller up up
+controller up down
+controller up up
+controller up down
+controller up up
+controller up down
+controller up up
+controller up down
+controller up up
+wait-frames 2
+controller a down
+controller a up
+wait-text "must be 1 to 32" 120
+assert-text "David"
+assert-absent "David 2"
+capture rejected
+quit

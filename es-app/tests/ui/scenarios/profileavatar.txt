@@ -1,0 +1,18 @@
+wait-text "Super Nintendo Entertainment System" 600
+key escape down
+key escape up
+wait-text "MAIN MENU" 120
+key return down
+key return up
+wait-text "NAME" 120
+key down down
+key down up
+key right down
+key right up
+wait-frames 10
+capture focused
+key return down
+key return up
+wait-text "SAVED" 120
+capture picked
+quit

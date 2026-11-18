@@ -1,0 +1,80 @@
+# First launch: rename the profile with the controller-driven on-screen keyboard, then pick
+# the second avatar of the grid. profilerestart-part2.txt runs a second launch over the same
+# appdata and checks that both values are still on screen.
+wait-text "Super Nintendo Entertainment System" 600
+key escape down
+key escape up
+wait-text "MAIN MENU" 120
+assert-text "PROFILE"
+# The first Return opens the PROFILE screen, the second the on-screen keyboard.
+key return down
+key return up
+wait-text "NAME   David" 120
+capture profile-screen
+key return down
+key return up
+wait-text "PROFILE NAME" 120
+wait-text "David" 120
+
+# Down selects "1"; right twice to column 2 and down four times to the SPACE key.
+controller down down
+controller down up
+wait-frames 2
+controller right down
+controller right up
+controller right down
+controller right up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+wait-frames 2
+controller a down
+controller a up
+wait-frames 2
+assert-text "David "
+
+# Up four times to row 0, left once to "2", and press it.
+controller up down
+controller up up
+controller up down
+controller up up
+controller up down
+controller up up
+controller up down
+controller up up
+controller left down
+controller left up
+wait-frames 2
+controller a down
+controller a up
+wait-frames 2
+assert-text "David 2"
+
+# Up returns to the name field, where A accepts the edit.
+controller up down
+controller up up
+wait-frames 2
+controller a down
+controller a up
+wait-text "SAVED" 120
+assert-text "David 2"
+capture renamed
+
+# Down focuses the first avatar and Right the second one, "Cat". A picks it and writes it.
+controller down down
+controller down up
+wait-frames 2
+controller right down
+controller right up
+wait-frames 2
+capture avatar-focused
+controller a down
+controller a up
+wait-text "Cat" 120
+capture first-launch
+quit

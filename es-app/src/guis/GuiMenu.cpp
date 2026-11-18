@@ -9,6 +9,9 @@
 
 #include "guis/GuiMenu.h"
 
+#include "guis/GuiProfile.h"
+#include "profiles/ProfileMode.h"
+
 #if defined(_WIN64)
 // Why this is needed here is anyone's guess but without it the compilation fails.
 #include <winsock2.h>
@@ -148,6 +151,12 @@ GuiMenu::GuiMenu()
     , mThemeDownloaderReloadCounter {0}
 {
     const bool isFullUI {UIModeController::getInstance()->isUIModeFull()};
+
+    // Profile mode only. The screen is read-only when the profile is unresolved, so the entry
+    // is still shown and explains why.
+    if (ProfileMode::isMode())
+        addEntry(_("PROFILE"), mMenuColorPrimary, true,
+                 [this] { mWindow->pushGui(new GuiProfile()); });
 
     if (isFullUI)
         addEntry(_("SCRAPER"), mMenuColorPrimary, true, [this] { openScraperOptions(); });

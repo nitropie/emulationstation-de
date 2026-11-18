@@ -121,6 +121,53 @@ A run fails if the process does not exit 0, does not print `[ui-test] PASS`, pri
 `[ui-test] FAIL`, writes a different gamelist than declared, or if the two runs differ in scene
 text or persisted values.
 
+## Profile scenarios
+
+`fixtures/profiled/` is the profile-mode fixture: a three-avatar manifest with its images, a
+catalog whose entries point into the run directory, and metadata files. The runner substitutes
+the run directory for `@RUN@` in `catalog.json.in`, exports `NITROPIE_PROFILE_CATALOG` and
+`NITROPIE_PROFILE_ID`, and declares the persisted metadata file and its backup as `files`.
+Both are compared byte for byte against the goldens, so an unknown key in the input has to
+survive and the atomic publisher has to leave the previous bytes in `profile.json.bak`.
+`fixtures/noprofile/` runs without those variables and asserts that the `PROFILE` entry is
+absent.
+
+A scenario can launch the frontend more than once over the same staged data. The expectations
+JSON is the scenario; its scripts are named in `launch`, so `profilerestart-part1.txt` and
+`profilerestart-part2.txt` belong to the `profilerestart` scenario:
+
+```json
+{
+  "launch": ["profilerestart-part1.txt", "profilerestart-part2.txt"],
+  "files": [
+    { "path": "profile/profile.json", "golden": "profile-restart.json" },
+    { "path": "profile/profile.json.bak", "golden": "profile-renamed.json" }
+  ]
+}
+```
+
+The profile is renamed through the popup's own key grid, driven by the controller, because the
+language has no text-append primitive. The popup opens with the name field focused, so the
+first Down selects the first key. The grid is a hardcoded unshifted US layout, and the
+scenario paths depend on it:
+
+| Key | Grid cells |
+|---|---|
+| `1` | row 0, column 0 (the selected key after the first Down) |
+| `2` | row 0, column 1 |
+| `3` | row 0, column 2 |
+| SPACE | row 4, columns 2-9 |
+| CLEAR | row 4, columns 10-11 |
+| OK | row 1, column 12 |
+
+The scenarios reach SPACE with two Right and four Down from `1`, reach CLEAR with one more
+Right because SPACE spans columns 2-9, and type `2` after moving to row 0. Up from row 0
+leaves the grid for the name field, where A accepts the edit. The scenarios assert the field
+text with `assert-text` or `wait-text` before accepting, so a missed key fails on a named text
+check with the scene dump instead of in the persisted file. The captures print the popup's
+field text, which is how the grid path was established: the key that was focused is the one
+whose character appears in the field after A.
+
 ## Known limits
 
 - Mesa `llvmpipe` output is not pixel-identical to the Raspberry Pi GPU. Pixel assertions compare

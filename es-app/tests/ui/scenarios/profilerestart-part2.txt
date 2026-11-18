@@ -1,0 +1,14 @@
+# Second launch over the appdata of profilerestart-part1.txt: the new name and the picked
+# avatar are loaded from the persisted metadata file.
+wait-text "Super Nintendo Entertainment System" 600
+key escape down
+key escape up
+wait-text "MAIN MENU" 120
+assert-text "PROFILE"
+key return down
+key return up
+wait-text "NAME" 120
+assert-text "David 2"
+assert-text "Cat"
+capture restarted
+quit

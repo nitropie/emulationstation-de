@@ -1,0 +1,13 @@
+{
+  "runs": 2,
+  "profile": {
+    "fixture": "profiled",
+    "id": "bbb35f7a-a579-4721-8510-2f777c27225a",
+    "metadata": "profile.json"
+  },
+  "launch": ["profilerestart-part1.txt", "profilerestart-part2.txt"],
+  "files": [
+    { "path": "profile/profile.json", "golden": "profile-restart.json" },
+    { "path": "profile/profile.json.bak", "golden": "profile-renamed.json" }
+  ]
+}

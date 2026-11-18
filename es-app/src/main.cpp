@@ -36,6 +36,8 @@
 #include "utils/StringUtil.h"
 #include "views/ViewController.h"
 
+#include "profiles/ProfileMode.h"
+
 #include "UiTestDriver.h"
 
 #include <SDL2/SDL_events.h>
@@ -760,6 +762,9 @@ int main(int argc, char* argv[])
             Settings::getInstance()->setBool("PortableMode", false);
         }
     }
+
+    // Resolve the profile session from the launcher environment, if any.
+    ProfileMode::initialize();
 
     // Always close the log on exit.
     atexit(&onExit);

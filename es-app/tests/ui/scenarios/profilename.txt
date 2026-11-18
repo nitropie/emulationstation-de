@@ -1,0 +1,83 @@
+# Rename the profile with the controller-driven on-screen keyboard, accept, and quit.
+#
+# The popup opens with the editable name field focused, so the first Down selects the first
+# key of the keyboard grid. That is "1" in the unshifted US layout the popup hardcodes:
+#
+#   row 0   1 2 3 4 5 6 7 8 9 0 - = DEL
+#   row 1   q w e r t y u i o p [ ] OK
+#   row 2   a s d f g h j k l ; ' \
+#   row 3   ` z x c v b n m , . / ALT
+#   row 4   SHIFT(2 wide) SPACE(columns 2-9) CLEAR(10-11) CANCEL
+#
+# The path below types a space and a "2", giving "David 2", and accepts by returning to the
+# name field with Up and pressing A there.
+wait-text "Super Nintendo Entertainment System" 600
+key escape down
+key escape up
+wait-text "MAIN MENU" 120
+assert-text "PROFILE"
+# The first Return opens the PROFILE screen, the second the on-screen keyboard.
+key return down
+key return up
+wait-text "NAME   David" 120
+capture profile-screen
+key return down
+key return up
+wait-text "PROFILE NAME" 120
+wait-text "David" 120
+
+# Down from the name field selects "1" (column 0, row 0).
+controller down down
+controller down up
+wait-frames 2
+assert-absent "David 2"
+capture key-grid
+
+# Right twice to column 2, then down four times to the SPACE key.
+controller right down
+controller right up
+controller right down
+controller right up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+wait-frames 2
+controller a down
+controller a up
+wait-frames 2
+assert-text "David "
+capture space-typed
+
+# Up four times back to row 0, left once to "2", and press it.
+controller up down
+controller up up
+controller up down
+controller up up
+controller up down
+controller up up
+controller up down
+controller up up
+controller left down
+controller left up
+wait-frames 2
+controller a down
+controller a up
+wait-frames 2
+assert-text "David 2"
+capture name-typed
+
+# Up returns to the name field, where A accepts the edit.
+controller up down
+controller up up
+wait-frames 2
+controller a down
+controller a up
+wait-text "SAVED" 120
+assert-text "David 2"
+capture renamed
+quit

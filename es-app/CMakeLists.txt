@@ -42,6 +42,7 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiLaunchScreen.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiMediaViewerOptions.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiMenu.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiProfile.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiMetaDataEd.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiOfflineGenerator.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiOrphanedDataCleanup.h
@@ -70,6 +71,7 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/AvatarManifest.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileJson.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileMetadata.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileMode.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileRecordKey.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileSession.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateFile.h
@@ -111,6 +113,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiLaunchPresets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiLaunchScreen.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiMenu.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiProfile.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiMediaViewerOptions.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiMetaDataEd.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiOfflineGenerator.cpp
@@ -140,6 +143,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/AvatarManifest.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileJson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileMetadata.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileMode.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileRecordKey.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileSession.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateFile.cpp
@@ -469,6 +473,7 @@ if(BUILD_TESTS)
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/AvatarManifest.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileJson.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileMetadata.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileMode.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileRecordKey.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileSession.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateFile.cpp

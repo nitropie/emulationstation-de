@@ -76,8 +76,11 @@ namespace ProfileState
         virtual void apply(const ProfileRecordKey& key, MetaDataList& record) const = 0;
 
         // Stages the record's personal fields. Fields equal to their declared default are
-        // omitted, so an absent field always means the default.
-        virtual void capture(const ProfileRecordKey& key, const MetaDataList& record) = 0;
+        // omitted, so an absent field always means the default. Returns false when a field
+        // could not be written in its stored form: the stored value for that field is kept and
+        // the rejection is reported through loadErrors(), and the caller must treat the record
+        // as still pending rather than dropping the edit.
+        virtual bool capture(const ProfileRecordKey& key, const MetaDataList& record) = 0;
 
         // Persists the staged changes and returns an explicit result. The dirty state is cleared
         // only after a successful durable write; on failure the staged changes stay pending.

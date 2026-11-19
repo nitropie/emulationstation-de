@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "default": "c4a1e8d2-7b39-4c05-9f61-8d2a5e0b7c43",
+  "libraryRoot": "@RUN@/library",
+  "avatarManifest": "@RUN@/avatars/avatars.json",
+  "profiles": [
+    {
+      "id": "c4a1e8d2-7b39-4c05-9f61-8d2a5e0b7c43",
+      "metadata": "@RUN@/profile/profile.json",
+      "home": "@RUN@/home",
+      "appdata": "@RUN@/appdata",
+      "saves": "@RUN@/home/saves",
+      "xdgConfigHome": "@RUN@/home/.config",
+      "xdgDataHome": "@RUN@/home/.local/share",
+      "xdgStateHome": "@RUN@/home/.local/state",
+      "xdgCacheHome": "@RUN@/home/.cache"
+    }
+  ]
+}

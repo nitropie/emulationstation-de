@@ -170,10 +170,10 @@ void ProfileState::JsonStore::apply(const ProfileRecordKey& key, MetaDataList& r
     }
 }
 
-void ProfileState::JsonStore::capture(const ProfileRecordKey& key, const MetaDataList& record)
+bool ProfileState::JsonStore::capture(const ProfileRecordKey& key, const MetaDataList& record)
 {
     if (!mResolved || record.getType() != listTypeFor(key.type()))
-        return;
+        return false;
 
     const std::string recordId {(key.type() == ProfileRecordType::game ? "game" : "folder") +
                                 std::string {":"} + key.path()};
@@ -210,12 +210,15 @@ void ProfileState::JsonStore::capture(const ProfileRecordKey& key, const MetaDat
             mRecordEditErrors[recordId] = "record \"" + key.path() + "\": " + encodeError;
         rebuildErrors();
     };
+    // False when a field could not be encoded: the caller must keep the record pending so the
+    // edit is retried and stays reported instead of being dropped.
+    const bool encoded {encodeError.empty()};
 
     JsonEntry* entry {findEntry(key)};
     if (entry == nullptr) {
         if (captured.empty()) {
             publish();
-            return;
+            return encoded;
         }
 
         JsonEntry created;
@@ -226,7 +229,7 @@ void ProfileState::JsonStore::capture(const ProfileRecordKey& key, const MetaDat
         mDocument.errors = recordErrors(mDocument);
         markDirty();
         publish();
-        return;
+        return encoded;
     }
 
     // Known personal fields are replaced by the captured value or dropped when the record holds
@@ -260,7 +263,7 @@ void ProfileState::JsonStore::capture(const ProfileRecordKey& key, const MetaDat
         mDocument.errors = recordErrors(mDocument);
         markDirty();
         publish();
-        return;
+        return encoded;
     }
 
     if (fieldsChanged) {
@@ -270,6 +273,7 @@ void ProfileState::JsonStore::capture(const ProfileRecordKey& key, const MetaDat
     }
 
     publish();
+    return encoded;
 }
 
 ProfileState::FlushResult ProfileState::JsonStore::flush()

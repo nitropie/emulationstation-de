@@ -1,0 +1,22 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "snes",
+  "systemPreferences": {},
+  "entries": [
+    {
+      "type": "game",
+      "path": "Second Game (USA).sfc",
+      "fields": {
+        "favorite": true
+      }
+    },
+    {
+      "type": "game",
+      "path": "Third Game (USA).sfc",
+      "fields": {
+        "playcount": 5
+      }
+    }
+  ]
+}

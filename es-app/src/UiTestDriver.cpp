@@ -277,13 +277,21 @@ namespace
 
     void pushText(const std::string& text)
     {
-        SDL_StartTextInput();
-
-        SDL_Event event;
-        std::memset(&event, 0, sizeof(event));
-        event.type = SDL_TEXTINPUT;
-        std::snprintf(event.text.text, sizeof(event.text.text), "%s", text.c_str());
-        SDL_PushEvent(&event);
+        // A pushed SDL2 text event segfaults inside SDL_PushEvent: sdl2-compat bridges the
+        // SDL2 event, whose text lives in an inline fixed-size buffer, to the SDL3 text event,
+        // whose string has different ownership, and SDL3 dereferences the wrong pointer. Key and
+        // controller events carry no pointer payload and are unaffected.
+        //
+        // Deliver the text through the same entry point main() uses for SDL_TEXTINPUT, so the
+        // text still travels the application's real text-input path without the broken bridge.
+        Window* window {Window::getInstance()};
+        if (window != nullptr) {
+            // The text component masks injected text while a key is being processed; real typing
+            // works because SDL sends KEYDOWN (which unmasks) just before TEXTINPUT. A scenario
+            // has no such key, so it takes the paste path, which the component accepts while
+            // masked and which inserts the text the same way.
+            window->textInput(text, true);
+        }
     }
 
     void pushQuit()

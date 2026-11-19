@@ -81,7 +81,7 @@ namespace
             }
         }
 
-        void capture(const ProfileRecordKey& key, const MetaDataList& record) override
+        bool capture(const ProfileRecordKey& key, const MetaDataList& record) override
         {
             std::map<std::string, std::string> fields;
             for (const MetaDataDecl& decl : record.getMDD()) {
@@ -98,7 +98,7 @@ namespace
                                                            stored->second != fields};
 
             if (!changed)
-                return;
+                return true;
 
             if (fields.empty())
                 mRecords.erase(key);
@@ -106,6 +106,7 @@ namespace
                 mRecords[key] = std::move(fields);
 
             mDirty = true;
+            return true;
         }
 
         ProfileState::FlushResult flush() override

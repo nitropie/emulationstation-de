@@ -1772,6 +1772,9 @@ void ViewController::rescanROMDirectory()
 
     mWindow->renderSplashScreen(Window::SplashScreenState::SCANNING, 0.0f);
     CollectionSystemsManager::getInstance()->deinit(false);
+    // Pending personal changes are staged before the old trees are torn down; the store outlives
+    // the rescan.
+    SystemData::captureAllPersonalStates();
     SystemData::loadConfig();
 
     if (SystemData::sStartupExitSignal) {

@@ -387,6 +387,16 @@ namespace GamelistFileParser
                         bool updateAlternativeEmulator,
                         const bool updateScreenLaunch)
     {
+        // A normal profile session never writes the shared library: personal changes go to the
+        // state store and shared data changes only through the explicit shared-only writer.
+        if (ProfileMode::isMode()) {
+            LOG(LogWarning)
+                << "GamelistFileParser::updateGamelist(): refusing to write the shared gamelist "
+                   "of \""
+                << system->getName() << "\" in profile mode";
+            return;
+        }
+
         // We do this by reading the XML again, adding changes and then writing them back,
         // because there might be information missing in our systemdata which we would otherwise
         // miss in the new XML file. We have the complete information for every game though, so

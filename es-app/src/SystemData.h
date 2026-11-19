@@ -15,6 +15,7 @@
 #include "PlatformId.h"
 #include "ThemeData.h"
 #include "profiles/ProfileRecordKey.h"
+#include "profiles/ProfileStateStore.h"
 
 #include <algorithm>
 #include <map>
@@ -158,6 +159,11 @@ public:
     void setAlternativeEmulator(const std::string& command) { mAlternativeEmulator = command; }
     const bool getLaunchOnOtherScreen() const { return mLaunchOnOtherScreen; }
     void setLaunchOnOtherScreen(bool state) { mLaunchOnOtherScreen = state; }
+    // Profile mode: writes the current preference to the personal state store and flushes it.
+    // The invalid-entry marker is a display state and is refused, never stored (design 6.3).
+    // Legacy mode callers keep using the gamelist writer.
+    void storeAlternativeEmulator();
+    void storeLaunchOnOtherScreen();
     std::string getLaunchCommandFromLabel(const std::string& label);
 
     static void deleteSystems();
@@ -199,6 +205,19 @@ public:
     FileFilterIndex* getIndex() { return mFilterIndex; }
     void onMetaDataSavePoint();
     void writeMetaData();
+
+    // Profile mode: captures every pending node change of this system into the store and flushes
+    // it. Returns the store's result, with the reason when the write failed. In legacy mode, and
+    // for collection systems, it does nothing.
+    ProfileState::FlushResult flushPersonalState();
+    // Profile mode: captures the pending node changes without writing. Called before a tree is
+    // torn down; the store keeps them until the next flush. Returns the reason when a value could
+    // not be stored, empty otherwise.
+    std::string capturePersonalState();
+    // Profile mode: captures every live system. Collection systems own no store.
+    static void captureAllPersonalStates();
+    // Logs a failed personal-state write and shows the reason when a window exists.
+    static void reportPersonalFlushFailure(const std::string& system, const std::string& reason);
 
     // The personal state store for this system. Nullptr in legacy mode and for collection systems.
     ProfileState::JsonStore* personalStore() const { return mPersonalStore; }

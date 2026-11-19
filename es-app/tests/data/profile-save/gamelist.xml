@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<gameList>
+    <game>
+        <path>./Alpha Game (USA).sfc</path>
+        <name>Alpha Game</name>
+        <desc>Alpha fixture game.</desc>
+        <favorite>true</favorite>
+        <playcount>9</playcount>
+        <lastplayed>20240102T030405</lastplayed>
+    </game>
+    <game>
+        <path>./Beta Game (USA).sfc</path>
+        <name>Beta Game</name>
+        <desc>Beta fixture game.</desc>
+    </game>
+    <game>
+        <path>./Folder One/Child One.sfc</path>
+        <name>Child One</name>
+    </game>
+    <game>
+        <path>./Folder One/Child Two.sfc</path>
+        <name>Child Two</name>
+    </game>
+    <folder>
+        <path>./Folder One</path>
+        <name>Folder One</name>
+        <favorite>true</favorite>
+    </folder>
+</gameList>

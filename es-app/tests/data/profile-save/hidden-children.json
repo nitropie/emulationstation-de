@@ -1,0 +1,29 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "snes",
+  "systemPreferences": {},
+  "entries": [
+    {
+      "type": "folder",
+      "path": "Folder One",
+      "fields": {
+        "hidden": true
+      }
+    },
+    {
+      "type": "game",
+      "path": "Folder One/Child One.sfc",
+      "fields": {
+        "hidden": true
+      }
+    },
+    {
+      "type": "game",
+      "path": "Folder One/Child Two.sfc",
+      "fields": {
+        "hidden": true
+      }
+    }
+  ]
+}

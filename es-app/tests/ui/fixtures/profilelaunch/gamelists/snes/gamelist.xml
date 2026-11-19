@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gameList>
+    <game>
+        <path>./Folder One/Child One.sfc</path>
+        <name>Child One</name>
+        <desc>Child One fixture game.</desc>
+    </game>
+    <folder>
+        <path>./Folder One</path>
+        <name>Folder One</name>
+    </folder>
+</gameList>

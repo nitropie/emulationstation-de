@@ -1,0 +1,22 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "gamegear",
+  "systemPreferences": {},
+  "entries": [
+    {
+      "type": "game",
+      "path": "Alpha Game (USA).sfc",
+      "fields": {
+        "favorite": true
+      }
+    },
+    {
+      "type": "game",
+      "path": "Beta Game (USA).sfc",
+      "fields": {
+        "playcount": 4
+      }
+    }
+  ]
+}

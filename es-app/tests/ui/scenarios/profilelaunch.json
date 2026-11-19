@@ -1,0 +1,25 @@
+{
+  "runs": 2,
+  "profile": {
+    "fixture": "profilelaunch",
+    "id": "d8e2f4b6-1c3a-4e59-8b70-62d5a9c1e3f7",
+    "metadata": "profile.json"
+  },
+  "launch": ["profilelaunch.txt"],
+  "files": [
+    {
+      "path": "appdata/profile-state/snes.json",
+      "golden": "state-after-launch.json",
+      "mask": [
+        {
+          "pattern": "\"lastplayed\": \"[0-9]{8}T[0-9]{6}\"",
+          "replace": "\"lastplayed\": \"<TS>\""
+        }
+      ]
+    },
+    {
+      "path": "appdata/gamelists/snes/gamelist.xml",
+      "golden": "gamelists/snes/gamelist.xml"
+    }
+  ]
+}

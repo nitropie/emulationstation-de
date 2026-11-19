@@ -37,7 +37,7 @@ namespace ProfileState
         bool recoverFromBackup() override;
 
         void apply(const ProfileRecordKey& key, MetaDataList& record) const override;
-        void capture(const ProfileRecordKey& key, const MetaDataList& record) override;
+        bool capture(const ProfileRecordKey& key, const MetaDataList& record) override;
         FlushResult flush() override;
         bool hasPendingWrites() const override { return mDirty; }
         bool canSwitchProfile() const override { return mResolved && !mDirty; }

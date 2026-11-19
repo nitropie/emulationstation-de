@@ -1,0 +1,8 @@
+# Second launch over the same staged data: the state the first launch wrote is part of the merged
+# metadata, and the favourite counter in the scene is the evidence that the toggle survived the
+# restart. The persisted profile metadata is compared byte for byte by the expectations file.
+wait-text "Super Nintendo Entertainment System" 600
+assert-text " 3   1"
+capture system-view-after
+
+quit

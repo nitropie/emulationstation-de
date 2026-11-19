@@ -20,6 +20,7 @@
 #include "Settings.h"
 #include "ThemeData.h"
 #include "UIModeController.h"
+#include "Window.h"
 #include "profiles/ProfileMode.h"
 #include "profiles/ProfileStateJsonStore.h"
 #include "resources/ResourceManager.h"
@@ -597,7 +598,13 @@ SystemData::SystemData(const std::string& name,
 
 SystemData::~SystemData()
 {
-    if (Settings::getInstance()->getString("SaveGamelistsMode") == "on exit") {
+    if (mPersonalStore != nullptr) {
+        // Profile mode never writes the shared gamelist on teardown. Pending node changes are
+        // staged into the store, which outlives this object, so a rescan or reload cannot lose
+        // them.
+        capturePersonalState();
+    }
+    else if (Settings::getInstance()->getString("SaveGamelistsMode") == "on exit") {
         if (mRootFolder->getGameCount().first + mRootFolder->getGameCount().second != 0)
             writeMetaData();
     }
@@ -741,6 +748,119 @@ void SystemData::loadPersonalState()
         mLaunchOnOtherScreen = mPersonalStore->launchOnOtherScreen();
 
     pruneHiddenEntries();
+}
+
+std::string SystemData::capturePersonalState()
+{
+    if (mPersonalStore == nullptr || mIsCollectionSystem || mRootFolder == nullptr)
+        return {};
+
+    // An unresolved store accepts nothing. The change flags stay set so the next flush, which
+    // reports the reason, still sees the pending changes.
+    if (!mPersonalStore->isResolved())
+        return {};
+
+    std::string rejection;
+
+    for (FileData* node : mRootFolder->getChildrenRecursive()) {
+        if (node->getType() != GAME && node->getType() != FOLDER)
+            continue;
+
+        if (!node->metadata.wasChanged())
+            continue;
+
+        const std::optional<ProfileRecordKey> key {personalKey(*node)};
+        if (!key.has_value()) {
+            // personalKey() reports why. A record that cannot be keyed has nothing to persist.
+            node->metadata.resetChangedFlag();
+            continue;
+        }
+
+        // A record whose value cannot be written keeps its change flag: the stored value for
+        // that field is unchanged and the rejection stays reported, so the next save point
+        // retries instead of the edit being dropped without a failure.
+        if (mPersonalStore->capture(*key, node->metadata)) {
+            node->metadata.resetChangedFlag();
+        }
+        else if (rejection.empty()) {
+            // The store kept the stored value for the field it rejected. That is not a silent
+            // success: the save point reports it, and the flag stays set so a corrected value is
+            // written at the next one.
+            rejection = "the personal state of \"" + key->path() + "\" in system \"" + mName +
+                        "\" holds a value that cannot be stored";
+            LOG(LogWarning) << "SystemData::capturePersonalState(): " << rejection;
+        }
+    }
+
+    return rejection;
+}
+
+ProfileState::FlushResult SystemData::flushPersonalState()
+{
+    if (mPersonalStore == nullptr || mIsCollectionSystem)
+        return {ProfileState::FlushStatus::nothingToDo, ""};
+
+    const std::string rejection {capturePersonalState()};
+
+    // A failed write keeps the staged changes in the store, so the next save point retries the
+    // whole sequence. A rejected value is a failure too: the user has to learn that the edit was
+    // not stored, even though the rest of the document was written.
+    const ProfileState::FlushResult result {mPersonalStore->flush()};
+    if (!rejection.empty()) {
+        reportPersonalFlushFailure(mName, rejection);
+        return {ProfileState::FlushStatus::failure, rejection};
+    }
+
+    if (result.status == ProfileState::FlushStatus::failure)
+        reportPersonalFlushFailure(mName, result.reason);
+
+    return result;
+}
+
+void SystemData::captureAllPersonalStates()
+{
+    if (!ProfileMode::isMode())
+        return;
+
+    for (SystemData* system : sSystemVector)
+        system->capturePersonalState();
+}
+
+void SystemData::reportPersonalFlushFailure(const std::string& system, const std::string& reason)
+{
+    LOG(LogError) << "Could not save the profile state of \"" << system << "\": " << reason;
+
+    // The popup is queued only while a window exists; headless tests and the shutdown path run
+    // without an info popup.
+    Window* window {Window::getInstance()};
+    if (window != nullptr)
+        window->queueInfoPopup(_("COULD NOT SAVE THE PROFILE STATE") + ": " + reason, 8000);
+}
+
+void SystemData::storeAlternativeEmulator()
+{
+    if (mPersonalStore == nullptr)
+        return;
+
+    // The invalid-entry marker is shown where the choice is made and is never a stored choice.
+    if (mAlternativeEmulator.compare(0, 9, "<INVALID>") == 0) {
+        LOG(LogError) << "SystemData::storeAlternativeEmulator(): refusing to store the "
+                         "invalid-entry marker \""
+                      << mAlternativeEmulator << "\" of system \"" << mName << "\"";
+        return;
+    }
+
+    mPersonalStore->setAlternativeEmulator(mAlternativeEmulator);
+    flushPersonalState();
+}
+
+void SystemData::storeLaunchOnOtherScreen()
+{
+    if (mPersonalStore == nullptr)
+        return;
+
+    mPersonalStore->setLaunchOnOtherScreen(mLaunchOnOtherScreen);
+    flushPersonalState();
 }
 
 bool SystemData::populateFolder(FileData* folder)
@@ -2175,6 +2295,13 @@ void SystemData::loadTheme(ThemeTriggers::TriggerType trigger)
 
 void SystemData::writeMetaData()
 {
+    // Profile mode writes personal state only. Shared data changes through the explicit
+    // shared-only writer, never through a normal session.
+    if (mPersonalStore != nullptr) {
+        flushPersonalState();
+        return;
+    }
+
     if (Settings::getInstance()->getBool("IgnoreGamelist") || mIsCollectionSystem)
         return;
 
@@ -2184,6 +2311,13 @@ void SystemData::writeMetaData()
 
 void SystemData::onMetaDataSavePoint()
 {
+    // Personal state is persisted at every save point, whatever SaveGamelistsMode says; the
+    // setting gates only the legacy gamelist writer.
+    if (mPersonalStore != nullptr) {
+        flushPersonalState();
+        return;
+    }
+
     if (Settings::getInstance()->getString("SaveGamelistsMode") != "always")
         return;
 

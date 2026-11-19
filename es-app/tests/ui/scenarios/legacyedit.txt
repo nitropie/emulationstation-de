@@ -1,0 +1,73 @@
+# Legacy mode: a personal field accepts whatever the user types, exactly as before profiles
+# existed. The refusal is a profile-mode rule and must not reach a legacy session.
+wait-text "Super Nintendo Entertainment System" 600
+key return down
+key return up
+wait-view gamelist 300
+wait-frames 60
+controller back down
+controller back up
+wait-text "GAMELIST OPTIONS" 300
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key return down
+key return up
+wait-text "TIMES PLAYED" 300
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+wait-frames 20
+key return down
+key return up
+wait-frames 30
+text "abc"
+wait-frames 10
+key return down
+key return up
+wait-frames 30
+# No refusal in legacy mode.
+assert-absent "IS NOT A VALID VALUE"
+capture accepted
+key backspace down
+key backspace up
+wait-text "SAVE CHANGES?" 300
+controller a down
+controller a up
+wait-frames 60
+capture saved
+quit

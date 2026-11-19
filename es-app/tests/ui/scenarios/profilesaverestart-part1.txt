@@ -1,0 +1,22 @@
+# First launch: mark the second fixture game as favourite and quit normally.
+wait-text "Super Nintendo Entertainment System" 600
+assert-text " 3   0"
+capture system-view-before
+key return down
+key return up
+wait-view gamelist 300
+# The view transition blocks input while it animates, so let it settle before moving the cursor.
+wait-frames 60
+
+key down down
+key down up
+wait-frames 20
+assert-text "Second fixture game."
+
+key insert down
+key insert up
+wait-frames 20
+assert-text " 3   1"
+capture favourite-toggled
+
+quit

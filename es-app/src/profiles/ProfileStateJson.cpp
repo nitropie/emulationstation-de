@@ -106,10 +106,31 @@ bool ProfileState::jsonMatchesMetadataType(const MetaDataDecl& decl, const std::
     }
 }
 
+bool ProfileState::isEncodableValue(const MetaDataDecl& decl, const std::string& value)
+{
+    switch (decl.type) {
+        case MD_BOOL:
+            return true;
+        case MD_INT: {
+            char* end {nullptr};
+            errno = 0;
+            const long long number {std::strtoll(value.c_str(), &end, 10)};
+            return errno == 0 && end != value.c_str() && *end == '\0' && number >= 0;
+        }
+        case MD_TIME:
+            return isTimeValue(value);
+        default:
+            return isValidUtf8(value);
+    }
+}
+
 bool ProfileState::jsonValueFromMetadata(const MetaDataDecl& decl,
                                          const std::string& value,
                                          std::string& json)
 {
+    if (!isEncodableValue(decl, value))
+        return false;
+
     switch (decl.type) {
         case MD_BOOL:
             json = (value == "true") ? "true" : "false";

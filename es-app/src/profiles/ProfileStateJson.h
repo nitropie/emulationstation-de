@@ -85,6 +85,10 @@ namespace ProfileState
     std::string serializeDocument(const JsonDocument& document);
 
     // Metadata value <-> JSON value for a personal field, following the MetaData type.
+    // True when the metadata value can be written in the JSON type of its declaration. The
+    // editor uses the same rule so invalid input is refused before it is committed.
+    bool isEncodableValue(const MetaDataDecl& decl, const std::string& value);
+
     bool jsonValueFromMetadata(const MetaDataDecl& decl,
                                const std::string& value,
                                std::string& json);

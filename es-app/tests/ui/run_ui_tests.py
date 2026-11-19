@@ -8,7 +8,6 @@
 #  results. See README.md in this directory.
 
 import argparse
-import glob
 import json
 import os
 import re
@@ -24,8 +23,14 @@ CAPTURE_RE = re.compile(
 TEXT_RE = re.compile(r"^\[ui-test\] capture (\S+) text (.*)$")
 
 
+# The run directory of the run currently being checked, so fail() can print the frontend log.
+CURRENT_RUN_DIR = None
+
+
 def fail(message):
     print(f"[ui-runner] FAIL {message}")
+    if CURRENT_RUN_DIR:
+        dump_frontend_log(CURRENT_RUN_DIR)
     sys.exit(1)
 
 
@@ -102,6 +107,9 @@ def stage_profile_state(fixture_root, appdata):
         return
     target = os.path.join(appdata, "profile-state")
     shutil.copytree(source, target, dirs_exist_ok=True)
+    # The staging directory inherits the read-only modes of the store, and the frontend has to be
+    # able to write the state file there.
+    os.chmod(target, 0o755)
     for name in os.listdir(target):
         os.chmod(os.path.join(target, name), 0o644)
 
@@ -120,8 +128,8 @@ def stage_gamelist_data(fixture_root, home, appdata):
     gamelist = os.path.join(appdata, "gamelists", "snes", "gamelist.xml")
     shutil.copyfile(os.path.join(fixture_root, "gamelists", "snes", "gamelist.xml"), gamelist)
     os.chmod(gamelist, 0o644)
-    for rom in glob.glob(os.path.join(fixture_root, "roms", "snes", "*")):
-        shutil.copyfile(rom, os.path.join(roms, os.path.basename(rom)))
+    # A fixture may ship ROM folders, so the tree is copied with its structure intact.
+    shutil.copytree(os.path.join(fixture_root, "roms", "snes"), roms, dirs_exist_ok=True)
 
     stage_profile_state(fixture_root, appdata)
 
@@ -170,6 +178,17 @@ def stage_profile(fixture_root, run_dir, profile):
     return home, appdata, env
 
 
+def dump_frontend_log(run_dir):
+    """Prints the tail of the frontend's own log, which is where launch problems are reported."""
+    path = os.path.join(run_dir, "appdata", "logs", "es_log.txt")
+    if not os.path.isfile(path):
+        return
+    print("[ui-runner] frontend log tail:", file=sys.stderr)
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for line in handle.readlines()[-40:]:
+            print(f"[ui-runner]   {line.rstrip()}", file=sys.stderr)
+
+
 def run_launch(binary, script, env, run_dir, timeout):
     environment = dict(env)
     environment["ES_DE_UI_TEST_SCRIPT"] = script
@@ -188,6 +207,11 @@ def run_launch(binary, script, env, run_dir, timeout):
     if completed.returncode != 0:
         fail(f"the frontend exited with {completed.returncode}")
     if "[ui-test] FAIL" in completed.stdout:
+        # The driver's own failure line names the step and the reason; repeat it here so the
+        # runner's generic failure is never the only thing in the log.
+        for line in completed.stdout.splitlines():
+            if line.startswith("[ui-test] FAIL"):
+                print(f"[ui-runner] scenario {line}", file=sys.stderr)
         fail("the scenario reported a failure")
     # A scenario may declare that the application exits on its own, for example through a dialog
     # that quits; a clean exit stands in for the PASS line then.
@@ -210,6 +234,54 @@ def run_launch(binary, script, env, run_dir, timeout):
         fail("the scenario captured no scene")
 
     return captures
+
+
+def apply_masks(text, masks, what):
+    """Applies the masking rules of one declared file to a text.
+
+    A mask is {"pattern": <regex>, "replace": <text>}. It must match at least once and must not
+    match again after the replacement, so a mask can never silently become a no-op.
+    """
+    for mask in masks:
+        pattern = mask["pattern"]
+        replacement = mask["replace"]
+        masked, count = re.subn(pattern, replacement, text)
+        if count == 0:
+            print(text)
+            fail(f"{what}: the mask pattern {pattern!r} matched nothing")
+        if re.search(pattern, masked):
+            fail(f"{what}: the mask pattern {pattern!r} still matches after masking")
+        text = masked
+    return text
+
+
+def parse_masks(entry):
+    """Validates the optional `mask` list of a `files` entry and compiles its patterns."""
+    if "mask" not in entry:
+        return []
+    masks = entry["mask"]
+    if not isinstance(masks, list) or not masks:
+        fail(f"{entry['path']}: mask must be a non-empty list")
+    for mask in masks:
+        if not isinstance(mask, dict) or set(mask) != {"pattern", "replace"}:
+            fail(f"{entry['path']}: every mask needs exactly a pattern and a replace")
+        if not isinstance(mask["pattern"], str) or not mask["pattern"]:
+            fail(f"{entry['path']}: a mask pattern must be a non-empty string")
+        if not isinstance(mask["replace"], str):
+            fail(f"{entry['path']}: a mask replace must be a string")
+        # Bounded: one regex per named file, of a sane length, and it may not match the empty
+        # string, which would let it rewrite arbitrary text.
+        if len(mask["pattern"]) > 200:
+            fail(f"{entry['path']}: the mask pattern {mask['pattern']!r} is longer than 200 "
+                 "characters")
+        try:
+            compiled = re.compile(mask["pattern"])
+        except re.error as error:
+            fail(f"{entry['path']}: the mask pattern {mask['pattern']!r} is not valid: {error}")
+        if compiled.match(""):
+            fail(f"{entry['path']}: the mask pattern {mask['pattern']!r} can match an empty "
+                 "string")
+    return masks
 
 
 def check_gamelist(gamelist, expected):
@@ -285,6 +357,8 @@ def main():
             run_dir = os.path.join(args.work_dir, f"{name}-run-{index}")
             shutil.rmtree(run_dir, ignore_errors=True)
 
+            global CURRENT_RUN_DIR
+            CURRENT_RUN_DIR = run_dir
             if profile:
                 home, appdata, extra_env = stage_profile(fixture_root, run_dir, profile)
             else:
@@ -311,6 +385,21 @@ def main():
                     actual = handle.read()
                 with open(golden, "rb") as handle:
                     expected = handle.read()
+
+                masks = parse_masks(entry)
+                if masks:
+                    # A masked file is compared as text, with the same rules applied to the actual
+                    # file, the golden and the two runs, so the masked form is what is recorded.
+                    actual_text = apply_masks(actual.decode("utf-8", "replace"), masks,
+                                              f"{entry['path']} (actual)")
+                    expected_text = apply_masks(expected.decode("utf-8", "replace"), masks,
+                                                f"{entry['golden']} (golden)")
+                    if actual_text != expected_text:
+                        print(actual_text)
+                        fail(f"{entry['path']} does not match {entry['golden']} after masking")
+                    files[entry["path"]] = actual_text
+                    continue
+
                 if actual != expected:
                     print(actual.decode("utf-8", "replace"))
                     fail(f"{entry['path']} does not match {entry['golden']}")

@@ -18,6 +18,8 @@
 
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace ProfileMode
 {
@@ -61,6 +63,11 @@ namespace ProfileMode
     bool reloadMetadata();
     // Flushes M. Returns false and sets `error` when the write failed.
     bool save(std::string& error);
+
+    // Flushes every open personal-state store, in system order. Returns one entry per failed
+    // store: the system name and the reason. Empty when every store is clean. This covers stores
+    // whose SystemData was torn down earlier, for example by a rescan that removed a system.
+    std::vector<std::pair<std::string, std::string>> flushStores();
 } // namespace ProfileMode
 
 #endif // ES_APP_PROFILES_PROFILE_MODE_H

@@ -25,6 +25,8 @@
 #include "components/SwitchComponent.h"
 #include "components/TextComponent.h"
 #include "guis/GuiMsgBox.h"
+#include "profiles/ProfileMode.h"
+#include "profiles/ProfileStateJson.h"
 #include "guis/GuiScraperSingle.h"
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/GuiTextEditPopup.h"
@@ -664,8 +666,25 @@ GuiMetaDataEd::GuiMetaDataEd(MetaDataList* md,
                 gamePath = Utils::FileSystem::getStem(scraperParams.game->getPath());
 
                 // OK callback (apply new value to ed).
-                auto updateVal = [ed, currentKey, originalValue, gamePath,
-                                  scraperParams](const std::string& newVal) {
+                const MetaDataDecl* editedDecl {&(*it)};
+                auto updateVal = [this, ed, currentKey, originalValue, gamePath, scraperParams,
+                                  editedDecl](const std::string& newVal) {
+                    // Personal state has a fixed on-disk type. Refuse a value it could not hold
+                    // here, while the user is still in the field, instead of letting it be
+                    // dropped when the metadata is saved.
+                    // Only a profile session owns that format. Legacy mode writes the gamelist
+                    // and keeps accepting whatever the user types, as it always has.
+                    if (ProfileMode::isMode() && isPersonalMetadata(*editedDecl) &&
+                        !ProfileState::isEncodableValue(*editedDecl, newVal)) {
+                        const std::string label {_p("metadata", editedDecl->displayName.c_str())};
+                        mWindow->pushGui(new GuiMsgBox(
+                            Utils::String::format(
+                                _("%s: \"%s\" IS NOT A VALID VALUE, THE PREVIOUS ONE IS KEPT"),
+                                label.c_str(), newVal.c_str()),
+                            _("OK")));
+                        return;
+                    }
+
                     // If the user has entered a blank game name, then set the name to the ROM
                     // filename (minus the extension).
                     if (currentKey == "name" && newVal == "") {
@@ -965,8 +984,9 @@ void GuiMetaDataEd::save()
     // metadata immediately regardless of the SaveGamelistsMode setting. Otherwise the file
     // will never be written as the game will be filtered from the gamelist. This solution is
     // not really good as the gamelist will be written twice, but it's a very special and
-    // hopefully rare situation.
-    if (hideGameWhileHidden)
+    // hopefully rare situation. Profile mode never writes the shared gamelist: the same case is
+    // captured into the profile store below, before the reload can prune the nodes.
+    if (hideGameWhileHidden && mScraperParams.system->personalStore() == nullptr)
         GamelistFileParser::updateGamelist(mScraperParams.system);
 
     // Enter game in index.
@@ -994,6 +1014,13 @@ void GuiMetaDataEd::save()
         else {
             hideGames.push_back(mScraperParams.game);
         }
+
+        // Profile mode: capture the folder and every hidden child while they are all still in
+        // the tree. The reloads below can prune hidden nodes, and a pruned node can no longer be
+        // captured.
+        if (mScraperParams.system->personalStore() != nullptr)
+            mScraperParams.system->flushPersonalState();
+
         for (FileData* hideGame : hideGames) {
             if (hideGame->getType() == GAME) {
                 // Update disabled auto collections when hiding a game, as otherwise these could

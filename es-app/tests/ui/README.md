@@ -122,6 +122,38 @@ A run fails if the process does not exit 0, does not print `[ui-test] PASS`, pri
 `[ui-test] FAIL`, writes a different gamelist than declared, or if the two runs differ in scene
 text or persisted values.
 
+### Masking a value that cannot be deterministic
+
+A few persisted values come from the clock rather than from input, for example `lastplayed`,
+which the game-end path stamps with the wall clock. A declared file may carry a `mask` list: each
+entry is a `pattern` (a regular expression) and a `replace` (the token that stands in for every
+match). The rules are applied to the actual file and to the golden, and the masked text is what
+the runner compares between the two runs, so both runs must agree after masking.
+
+```json
+{
+  "files": [
+    {
+      "path": "appdata/profile-state/snes.json",
+      "golden": "state-after-launch.json",
+      "mask": [
+        {
+          "pattern": "\"lastplayed\": \"[0-9]{8}T[0-9]{6}\"",
+          "replace": "\"lastplayed\": \"<TS>\""
+        }
+      ]
+    }
+  ]
+}
+```
+
+A mask is bounded to the file that declares it. Its pattern may not be longer than 200
+characters and may not be able to match the empty string; it must match at least once in both the
+actual file and the golden; and it must not match again after the replacement. Any of those
+failures stops the run with the reason, so a mask cannot quietly become a no-op. Masking is only
+for values that cannot be produced deterministically; every other file stays a byte-for-byte
+comparison.
+
 ## Profile scenarios
 
 `fixtures/profiled/` is the profile-mode fixture: a three-avatar manifest with its images, a

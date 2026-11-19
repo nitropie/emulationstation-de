@@ -1,0 +1,13 @@
+{
+  "runs": 2,
+  "profile": {
+    "fixture": "profileeditinvalid",
+    "id": "c4a1e8d2-7b39-4c05-9f61-8d2a5e0b7c43",
+    "metadata": "profile.json"
+  },
+  "launch": ["profileeditinvalid-part1.txt", "profileeditinvalid-part2.txt"],
+  "files": [
+    { "path": "appdata/profile-state/snes.json", "golden": "state-after-edit.json" },
+    { "path": "appdata/gamelists/snes/gamelist.xml", "golden": "gamelists/snes/gamelist.xml" }
+  ]
+}

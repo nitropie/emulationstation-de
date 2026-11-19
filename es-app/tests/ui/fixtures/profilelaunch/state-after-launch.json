@@ -1,0 +1,23 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "snes",
+  "systemPreferences": {},
+  "entries": [
+    {
+      "type": "folder",
+      "path": "Folder One",
+      "fields": {
+        "lastplayed": "20260101T000000"
+      }
+    },
+    {
+      "type": "game",
+      "path": "Folder One/Child One.sfc",
+      "fields": {
+        "playcount": 1,
+        "lastplayed": "20260101T000000"
+      }
+    }
+  ]
+}

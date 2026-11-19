@@ -2810,7 +2810,12 @@ void GuiMenu::openScreenLaunchOptions()
         s->addSaveFunc([systemEntry, system] {
             if (systemEntry->getState() != system->getLaunchOnOtherScreen()) {
                 system->setLaunchOnOtherScreen(systemEntry->getState());
-                GamelistFileParser::updateGamelist(system, false, true);
+                // Profile mode stores the choice as personal state and never writes the shared
+                // gamelist.
+                if (system->personalStore() != nullptr)
+                    system->storeLaunchOnOtherScreen();
+                else
+                    GamelistFileParser::updateGamelist(system, false, true);
             }
         });
 

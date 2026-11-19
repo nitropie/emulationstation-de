@@ -1,0 +1,24 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "snes",
+  "systemPreferences": {},
+  "entries": [
+    {
+      "type": "game",
+      "path": "Alpha Game (USA).sfc",
+      "fields": {
+        "favorite": true,
+        "completed": true,
+        "playcount": 3
+      }
+    },
+    {
+      "type": "game",
+      "path": "Beta Game (USA).sfc",
+      "fields": {
+        "playcount": 1
+      }
+    }
+  ]
+}

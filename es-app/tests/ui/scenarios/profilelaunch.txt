@@ -1,0 +1,30 @@
+# Profile mode: launching the fixture game runs the real game-end path. The fixture command
+# (`true`) exits at once, so the play count and the last-played stamps on the game and on its
+# parent folder are written by FileData::launchGame and FileData::setPlayMetadata, and persisted
+# through the profile save point. The fixture disables the launch screen, which otherwise defers
+# the launch by three seconds. The last-played values come from the clock, so the expectations
+# file masks them; the play count stays exact. The scene after the game ends is not captured,
+# because the metadata panel renders the last-played time and that would differ between the two
+# runs; the assertion below proves the frontend came back to the gamelist.
+wait-text "Super Nintendo Entertainment System" 600
+key return down
+key return up
+wait-view gamelist 300
+# The view transition blocks input while it animates, so let it settle before the next press.
+wait-frames 60
+
+# Entering the folder runs another transition; wait for the child's metadata panel, which is the
+# only place where the folder view shows that the cursor is on the game, and then let the
+# transition finish before pressing accept again.
+key return down
+key return up
+wait-text "Child One fixture game." 600
+wait-frames 60
+capture folder-view
+
+controller a down
+controller a up
+wait-frames 300
+assert-text "Child One fixture game."
+
+quit

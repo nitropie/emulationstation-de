@@ -173,7 +173,12 @@ void GuiAlternativeEmulators::selectorWindow(SystemData* system)
                     system->setAlternativeEmulator("");
                 else
                     system->setAlternativeEmulator(entry.second);
-                GamelistFileParser::updateGamelist(system, true);
+                // Profile mode stores the choice as personal state and never writes the shared
+                // gamelist. The store helper refuses the invalid-entry marker.
+                if (system->personalStore() != nullptr)
+                    system->storeAlternativeEmulator();
+                else
+                    GamelistFileParser::updateGamelist(system, true);
 
                 if (entry.second == system->getSystemEnvData()->mLaunchCommands.front().second) {
                     if (system->getSystemEnvData()->mLaunchCommands.front().second == "") {

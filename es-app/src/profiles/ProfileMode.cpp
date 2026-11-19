@@ -250,3 +250,16 @@ bool ProfileMode::save(std::string& error)
     error.clear();
     return true;
 }
+
+std::vector<std::pair<std::string, std::string>> ProfileMode::flushStores()
+{
+    std::vector<std::pair<std::string, std::string>> failures;
+
+    for (std::pair<const std::string, std::unique_ptr<ProfileState::JsonStore>>& entry : sStores) {
+        const ProfileState::FlushResult result {entry.second->flush()};
+        if (result.status == ProfileState::FlushStatus::failure)
+            failures.emplace_back(entry.first, result.reason);
+    }
+
+    return failures;
+}

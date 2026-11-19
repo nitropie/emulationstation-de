@@ -1333,6 +1333,13 @@ int main(int argc, char* argv[])
         LOG(LogInfo) << "Exit signal received, aborting application startup";
     }
 
+    // The last durable personal-state save point, before the window and the systems go away.
+    // Every open store is flushed, including stores whose SystemData was torn down earlier.
+    // Reporting happens here because the window still exists; a failure is also logged.
+    SystemData::captureAllPersonalStates();
+    for (const std::pair<std::string, std::string>& failure : ProfileMode::flushStores())
+        SystemData::reportPersonalFlushFailure(failure.first, failure.second);
+
     while (window->peekGui() != ViewController::getInstance())
         delete window->peekGui();
     window->deinit();

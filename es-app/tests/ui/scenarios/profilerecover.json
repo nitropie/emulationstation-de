@@ -7,7 +7,13 @@
   },
   "launch": ["profilerecover.txt"],
   "files": [
-    { "path": "appdata/profile-state/snes.json", "golden": "profile-state/snes.json" },
-    { "path": "appdata/profile-state/snes.json.bak", "golden": "profile-state/snes.json.bak" }
+    {
+      "path": "appdata/profile-state/snes.json",
+      "golden": "recovered-snes.json"
+    },
+    {
+      "path": "appdata/profile-state/snes.json.bak",
+      "golden": "profile-state/snes.json.bak"
+    }
   ]
 }

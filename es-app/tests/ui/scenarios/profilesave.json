@@ -1,0 +1,19 @@
+{
+  "runs": 2,
+  "profile": {
+    "fixture": "profilesave",
+    "id": "c4a1e8d2-7b39-4c05-9f61-8d2a5e0b7c43",
+    "metadata": "profile.json"
+  },
+  "launch": ["profilesave.txt"],
+  "files": [
+    {
+      "path": "appdata/profile-state/snes.json",
+      "golden": "state-after-toggle.json"
+    },
+    {
+      "path": "appdata/gamelists/snes/gamelist.xml",
+      "golden": "gamelists/snes/gamelist.xml"
+    }
+  ]
+}

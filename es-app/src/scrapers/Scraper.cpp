@@ -15,6 +15,7 @@
 #include "ScreenScraper.h"
 #include "Settings.h"
 #include "SystemData.h"
+#include "profiles/ProfileMode.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/StringUtil.h"
 
@@ -200,6 +201,15 @@ MDResolveHandle::MDResolveHandle(const ScraperSearchResult& result,
     std::vector<struct mediaFileInfoStruct> scrapeFiles;
 
     mResult.savedNewMedia = false;
+
+    // Scraped media is written to the shared media directory. Refuse at the resolver itself so a
+    // lower-level caller cannot create directories, remove existing media or write new files in
+    // a profile session.
+    if (ProfileMode::isMode()) {
+        LOG(LogWarning) << "MDResolveHandle: refusing to write shared media in profile mode";
+        setStatus(ASYNC_DONE);
+        return;
+    }
 
     if (Settings::getInstance()->getBool("Scrape3DBoxes") && result.box3DUrl != "") {
         mediaFileInfo.fileURL = result.box3DUrl;

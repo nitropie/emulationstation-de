@@ -16,14 +16,17 @@
 #include "MetaData.h"
 #include "Settings.h"
 #include "SystemData.h"
+#include "guis/GuiScraperSearch.h"
 #include "profiles/ProfileMode.h"
 #include "profiles/ProfileStateJsonStore.h"
 #include "profiles/ProfileStateStore.h"
+#include "scrapers/Scraper.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <system_error>
@@ -922,6 +925,113 @@ TEST_CASE(profileOutsideRootSiblingCannotAliasAPersonalKey)
 
     delete reloaded;
     leaveProfileMode();
+}
+
+// The scraper's own writer is a protected seam. In profile mode it must refuse before mutating
+// the shared metadata; in legacy mode the same result is applied.
+TEST_CASE(profileScraperWriterRefusesInProfileMode)
+{
+    Fixture fixture {"pcenginecd"};
+    fixture.enterProfileMode();
+
+    SystemData* system {loadSystem(fixture)};
+    FileData* game {findNode(*system, "Alpha Game (USA).sfc")};
+    EXPECT(game != nullptr);
+
+    MetaDataList metadata {GAME_METADATA};
+    metadata.set("name", "Alpha Game");
+    metadata.set("desc", "Original description");
+    metadata.resetChangedFlag();
+
+    ScraperSearchResult result;
+    result.mdl.set("name", "Scraped Name");
+    result.mdl.set("desc", "Scraped description");
+
+    Settings::getInstance()->setBool("ScraperOverwriteData", true);
+    Settings::getInstance()->setBool("ScrapeMetadata", true);
+    Settings::getInstance()->setBool("ScrapeGameNames", true);
+
+    EXPECT(!GuiScraperSearch::saveMetadata(result, metadata, game));
+    EXPECT(metadata.get("name") == "Alpha Game");
+    EXPECT(metadata.get("desc") == "Original description");
+    EXPECT(!metadata.wasChanged());
+
+    delete system;
+    leaveProfileMode();
+
+    // Legacy mode still applies the result through the same seam.
+    Fixture legacy {"atari5200"};
+    SystemData* legacySystem {loadSystem(legacy)};
+    FileData* legacyGame {findNode(*legacySystem, "Alpha Game (USA).sfc")};
+    EXPECT(legacyGame != nullptr);
+
+    MetaDataList legacyMetadata {GAME_METADATA};
+    legacyMetadata.set("name", "Alpha Game");
+    legacyMetadata.set("desc", "Original description");
+    legacyMetadata.resetChangedFlag();
+
+    EXPECT(GuiScraperSearch::saveMetadata(result, legacyMetadata, legacyGame));
+    EXPECT(legacyMetadata.get("name") == "Scraped Name");
+    EXPECT(legacyMetadata.get("desc") == "Scraped description");
+
+    delete legacySystem;
+}
+
+// Scraped media is written to the shared media directory. The resolver must refuse before it
+// creates directories, removes existing files or writes the cached image; legacy still writes
+// the exact bytes.
+TEST_CASE(profileScraperMediaBoundaryRefusesInProfileMode)
+{
+    Fixture fixture {"wonderswan"};
+    const fs::path mediaDirectory {fixture.root / "scraper-media"};
+    Settings::getInstance()->setString("MediaDirectory", mediaDirectory.string());
+    Settings::getInstance()->setBool("ScrapeCovers", true);
+    Settings::getInstance()->setBool("ScraperOverwriteData", true);
+
+    const std::string cover {testData("scraper-cover.png")};
+    ScraperSearchResult result;
+    result.coverUrl = "https://example.invalid/cover.png";
+    result.coverFormat = ".png";
+    result.thumbnailImageUrl = result.coverUrl;
+    result.thumbnailImageData = cover;
+
+    fixture.enterProfileMode();
+    SystemData* system {loadSystem(fixture)};
+    FileData* game {findNode(*system, "Alpha Game (USA).sfc")};
+    ScraperSearchParams params;
+    params.game = game;
+    params.system = system;
+
+    {
+        std::unique_ptr<MDResolveHandle> handle {resolveMetaDataAssets(result, params)};
+        handle->update();
+        EXPECT(!handle->getSavedNewMedia());
+    }
+    EXPECT(!fs::exists(mediaDirectory));
+
+    delete system;
+    leaveProfileMode();
+
+    // Legacy mode writes the same cached image to the exact shared-media path.
+    Fixture legacy {"neogeocd"};
+    SystemData* legacySystem {loadSystem(legacy)};
+    FileData* legacyGame {findNode(*legacySystem, "Alpha Game (USA).sfc")};
+    ScraperSearchParams legacyParams;
+    legacyParams.game = legacyGame;
+    legacyParams.system = legacySystem;
+
+    {
+        std::unique_ptr<MDResolveHandle> handle {resolveMetaDataAssets(result, legacyParams)};
+        handle->update();
+        EXPECT(handle->getSavedNewMedia());
+    }
+
+    const fs::path coverPath {mediaDirectory / "neogeocd" / "covers" / "Alpha Game (USA).png"};
+    EXPECT(fs::exists(coverPath));
+    EXPECT(readFile(coverPath) == cover);
+
+    delete legacySystem;
+    Settings::getInstance()->setString("MediaDirectory", "");
 }
 
 // The gamelist writer itself refuses to run in profile mode, whichever caller reaches it.

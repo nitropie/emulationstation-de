@@ -31,6 +31,7 @@
 #include "guis/GuiMsgBox.h"
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/GuiTextEditPopup.h"
+#include "profiles/ProfileMode.h"
 #include "resources/Font.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/StringUtil.h"
@@ -1116,6 +1117,13 @@ bool GuiScraperSearch::saveMetadata(const ScraperSearchResult& result,
                                     MetaDataList& metadata,
                                     FileData* scrapedGame)
 {
+    // Scraping mutates the shared library. Refuse at the writer itself, not only at the menu and
+    // editor entry points, so no lower-level caller can bypass the profile rule.
+    if (ProfileMode::isMode()) {
+        LOG(LogWarning) << "GuiScraperSearch::saveMetadata(): scraping is disabled in profile mode";
+        return false;
+    }
+
     bool metadataUpdated {false};
     bool hasDefaultName {false};
     std::vector<MetaDataDecl> mMetaDataDecl {metadata.getMDD()};

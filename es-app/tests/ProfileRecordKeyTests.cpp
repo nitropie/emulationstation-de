@@ -88,6 +88,54 @@ TEST_CASE(collectionEntriesResolveToTheirSourceGame)
     EXPECT(collection.path() == "Hacks/Kaizo Mario World.sfc");
 }
 
+TEST_CASE(rootKeysRequireADirectoryBoundary)
+{
+    const std::string root {"/roms/snes"};
+    const auto fromRoot = [&root](const std::string& path) {
+        return ProfileRecordKey::fromRootPath("snes", ProfileRecordType::game, root, path);
+    };
+
+    // The root itself has no record, with or without a trailing separator.
+    EXPECT(!fromRoot("/roms/snes").has_value());
+    EXPECT(!fromRoot("/roms/snes/").has_value());
+
+    // A sibling that only shares the root's string prefix is outside, not "other/Game.sfc".
+    EXPECT(!fromRoot("/roms/snes-other/Game.sfc").has_value());
+    EXPECT(!fromRoot("/roms/snesother/Game.sfc").has_value());
+    EXPECT(!fromRoot("/roms/other/Game.sfc").has_value());
+
+    // Traversal and dot segments are rejected even when the text starts below the root.
+    EXPECT(!fromRoot("/roms/snes/../snes-other/Game.sfc").has_value());
+    EXPECT(!fromRoot("/roms/snes/Hacks/../Game.sfc").has_value());
+    EXPECT(!fromRoot("/roms/snes/./Game.sfc").has_value());
+    EXPECT(!fromRoot("/roms/snes/Hacks/./Game.sfc").has_value());
+
+    const std::optional<ProfileRecordKey> top {fromRoot("/roms/snes/Game.sfc")};
+    EXPECT(top.has_value());
+    if (top.has_value())
+        EXPECT(top->path() == "Game.sfc");
+
+    const std::optional<ProfileRecordKey> nested {fromRoot("/roms/snes/Hacks/Game.sfc")};
+    EXPECT(nested.has_value());
+    if (nested.has_value())
+        EXPECT(nested->path() == "Hacks/Game.sfc");
+
+    // Separator normalization happens before the boundary test and the key rules.
+    const std::optional<ProfileRecordKey> normalized {
+        fromRoot("/roms/snes//Hacks//Game.sfc")};
+    EXPECT(normalized.has_value());
+    if (normalized.has_value())
+        EXPECT(normalized->path() == "Hacks/Game.sfc");
+
+    // A root of "/" keeps its leading separator out of the relative key.
+    const std::optional<ProfileRecordKey> filesystemRoot {
+        ProfileRecordKey::fromRootPath("snes", ProfileRecordType::game, "/", "/Game.sfc")};
+    EXPECT(filesystemRoot.has_value());
+    if (filesystemRoot.has_value())
+        EXPECT(filesystemRoot->path() == "Game.sfc");
+    EXPECT(!ProfileRecordKey::fromRootPath("snes", ProfileRecordType::game, "/", "/").has_value());
+}
+
 TEST_CASE(pathsThatEscapeTheSystemRootAreRejected)
 {
     const std::vector<std::string> rejected {

@@ -871,6 +871,59 @@ TEST_CASE(profilePartialRecoveryRetryPublishesAllStores)
     leaveProfileMode();
 }
 
+// A shared gamelist entry can name an absolute path that shares the system root's string prefix
+// without a directory boundary. The legacy parser accepts it, but the profile key seam must not
+// let it alias the valid descendant "other/Game.sfc" and overwrite that record.
+TEST_CASE(profileOutsideRootSiblingCannotAliasAPersonalKey)
+{
+    Fixture fixture {"sega32x"};
+    writeFile(fixture.roms / "other" / "zzz.sfc", "");
+
+    // A legitimate descendant already has a personal record. The outside sibling below would map
+    // to the same relative key with prefix stripping and overwrite it.
+    const std::string existingState {
+        "{\n  \"schema\": \"nitropie.profile-state\",\n  \"version\": 1,\n  "
+        "\"system\": \"sega32x\",\n  \"systemPreferences\": {},\n  \"entries\": [\n"
+        "    {\n      \"type\": \"game\",\n      \"path\": \"other/zzz.sfc\",\n      "
+        "\"fields\": {\n        \"playcount\": 4\n      }\n    }\n  ]\n}\n"};
+    writeFile(fixture.statePath(), existingState);
+
+    fixture.enterProfileMode();
+
+    SystemData* system {loadSystem(fixture)};
+    FileData* legitimate {findNode(*system, "other/zzz.sfc")};
+    EXPECT(legitimate != nullptr);
+    if (legitimate != nullptr) {
+        EXPECT(legitimate->metadata.get("playcount") == "4");
+        EXPECT(!legitimate->metadata.wasChanged());
+    }
+
+    const std::string outsidePath {fixture.roms.string() + "-other/zzz.sfc"};
+    FileData* outside {new FileData(GAME, outsidePath, system->getSystemEnvData(), system)};
+    system->getRootFolder()->addChild(outside);
+    outside->metadata.set("favorite", "true");
+
+    // Nothing may be captured or written: the outside record has no key.
+    const ProfileState::FlushResult result {system->flushPersonalState()};
+    EXPECT(result.status == ProfileState::FlushStatus::nothingToDo);
+    EXPECT(!outside->metadata.wasChanged());
+
+    EXPECT(readFile(fixture.statePath()) == existingState);
+
+    delete system;
+
+    SystemData* reloaded {loadSystem(fixture)};
+    FileData* reloadedLegitimate {findNode(*reloaded, "other/zzz.sfc")};
+    EXPECT(reloadedLegitimate != nullptr);
+    if (reloadedLegitimate != nullptr) {
+        EXPECT(reloadedLegitimate->metadata.get("playcount") == "4");
+        EXPECT(reloadedLegitimate->metadata.get("favorite") == "false");
+    }
+
+    delete reloaded;
+    leaveProfileMode();
+}
+
 // The gamelist writer itself refuses to run in profile mode, whichever caller reaches it.
 TEST_CASE(profileWriterRefusesTheSharedGamelist)
 {

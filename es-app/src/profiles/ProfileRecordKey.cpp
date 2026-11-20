@@ -8,6 +8,8 @@
 
 #include "profiles/ProfileRecordKey.h"
 
+#include "utils/FileSystemUtil.h"
+
 #include <utility>
 
 namespace
@@ -117,6 +119,35 @@ std::optional<ProfileRecordKey> ProfileRecordKey::fromPath(std::string system,
         return std::nullopt;
 
     return ProfileRecordKey {std::move(system), type, std::move(path)};
+}
+
+std::optional<ProfileRecordKey> ProfileRecordKey::fromRootPath(
+    std::string system,
+    const ProfileRecordType type,
+    const std::string& root,
+    const std::string& path)
+{
+    const std::string genericRoot {Utils::FileSystem::getGenericPath(root)};
+    const std::string genericPath {Utils::FileSystem::getGenericPath(path)};
+    if (genericRoot.empty() || genericPath.empty())
+        return std::nullopt;
+
+    std::string relative;
+    if (genericRoot == "/") {
+        // A root of "/" already ends in the separator; the relative path starts right after it.
+        if (genericPath.size() < 2 || genericPath.front() != '/')
+            return std::nullopt;
+        relative = genericPath.substr(1);
+    }
+    else {
+        if (genericPath.size() <= genericRoot.size() ||
+            genericPath.compare(0, genericRoot.size(), genericRoot) != 0 ||
+            genericPath[genericRoot.size()] != '/')
+            return std::nullopt;
+        relative = genericPath.substr(genericRoot.size() + 1);
+    }
+
+    return fromPath(std::move(system), type, std::move(relative));
 }
 
 bool ProfileRecordKey::operator==(const ProfileRecordKey& other) const

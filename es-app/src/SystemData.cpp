@@ -639,18 +639,20 @@ std::optional<ProfileRecordKey> SystemData::personalKey(FileData& record) const
     if (source.getPath() == startPath)
         return std::nullopt;
 
-    bool contains {false};
-    const std::string relative {
-        Utils::FileSystem::removeCommonPath(source.getPath(), startPath, contains)};
-    if (!contains) {
+    // Do not use removeCommonPath() here: it accepts any string prefix, so "/roms/snes" would
+    // claim "/roms/snes-other/Game.sfc" and make it alias the relative key "other/Game.sfc".
+    // The profile key seam requires a directory boundary and rejects traversal.
+    const std::optional<ProfileRecordKey> key {ProfileRecordKey::fromRootPath(
+        system->getName(),
+        source.getType() == GAME ? ProfileRecordType::game : ProfileRecordType::folder, startPath,
+        source.getPath())};
+    if (!key.has_value()) {
         LOG(LogError) << "SystemData::personalKey(): \"" << source.getPath()
-                      << "\" is outside the system root \"" << startPath << "\"";
-        return std::nullopt;
+                      << "\" is not a normalized record below the system root \"" << startPath
+                      << "\"";
     }
 
-    return ProfileRecordKey::fromPath(
-        system->getName(),
-        source.getType() == GAME ? ProfileRecordType::game : ProfileRecordType::folder, relative);
+    return key;
 }
 
 void SystemData::applyPersonalState(FileData* record)

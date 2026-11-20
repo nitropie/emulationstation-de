@@ -35,6 +35,14 @@ public:
                                                     ProfileRecordType type,
                                                     std::string path);
 
+    // Returns no key unless `path` is strictly below `root` with a directory-separator boundary.
+    // A sibling that merely shares the root's string prefix is outside, and any "." or ".."
+    // segment in the relative part is rejected by fromPath(). The root itself has no record.
+    static std::optional<ProfileRecordKey> fromRootPath(std::string system,
+                                                        ProfileRecordType type,
+                                                        const std::string& root,
+                                                        const std::string& path);
+
     // A collection entry is a view over a source game and never owns a record of its own.
     static ProfileRecordKey fromCollectionEntry(const ProfileRecordKey& sourceGame)
     {

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gameList>
+    <game>
+        <path>./Super Mario World (USA).sfc</path>
+        <name>Super Mario World</name>
+        <desc>Fixture game for the native UI scenario.</desc>
+        <favorite>false</favorite>
+    </game>
+</gameList>

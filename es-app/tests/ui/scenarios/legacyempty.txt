@@ -1,0 +1,26 @@
+# Legacy mode keeps the shared library setup actions in the no-games dialog. The profile-mode
+# restriction is branched before this path and must not reach a legacy session.
+wait-text "NO GAME FILES WERE FOUND" 600
+assert-text "IMPORT"
+assert-text "CHANGE"
+assert-text "CREATE"
+capture legacy-no-games
+
+# CREATE still opens its confirmation. Cancel it so the scenario proves the action without
+# writing anything.
+controller right down
+controller right up
+controller right down
+controller right up
+controller a down
+controller a up
+wait-text "THIS WILL CREATE DIRECTORIES FOR ALL THE GAME SYSTEMS" 300
+capture legacy-create-confirm
+controller right down
+controller right up
+controller a down
+controller a up
+wait-frames 20
+assert-text "NO GAME FILES WERE FOUND"
+
+quit

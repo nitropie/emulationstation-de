@@ -1,0 +1,22 @@
+{
+  "runs": 2,
+  "profile": {
+    "fixture": "profileempty",
+    "id": "bbb35f7a-a579-4721-8510-2f777c27225a",
+    "metadata": "profile.json"
+  },
+  "launch": [
+    "profileempty-part1.txt",
+    "profileempty-part2.txt"
+  ],
+  "files": [
+    {
+      "path": "appdata/profile-state/snes.json",
+      "golden": "state-after-hide.json"
+    },
+    {
+      "path": "appdata/gamelists/snes/gamelist.xml",
+      "golden": "gamelists/snes/gamelist.xml"
+    }
+  ]
+}

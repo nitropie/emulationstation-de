@@ -1,0 +1,89 @@
+# Profile mode: hiding the last visible game and rescanning reaches the empty-library state.
+# The profile dialog must not offer shared library setup, and the shared gamelist and settings
+# must keep their bytes. The second launch then checks the startup path over the hidden state.
+wait-text "Super Nintendo Entertainment System" 600
+assert-text "Fixture game for the native UI scenario."
+capture system-view
+
+key return down
+key return up
+wait-view gamelist 300
+wait-frames 60
+
+# Open the gamelist options and the metadata editor for the only game.
+controller back down
+controller back up
+wait-text "GAMELIST OPTIONS" 300
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key return down
+key return up
+wait-text "TIMES PLAYED" 300
+
+# FAVORITE and COMPLETED precede HIDDEN in the personal-field editor.
+key down down
+key down up
+key down down
+key down up
+key return down
+key return up
+wait-frames 20
+capture hidden-toggled
+
+key backspace down
+key backspace up
+wait-text "SAVE CHANGES?" 300
+controller a down
+controller a up
+wait-frames 60
+
+# The editor was pushed from the gamelist options, so close that menu first.
+key backspace down
+key backspace up
+wait-frames 30
+
+# The game is no longer visible, so the system has no visible games left.
+assert-absent "Fixture game for the native UI scenario."
+key escape down
+key escape up
+wait-text "MAIN MENU" 120
+
+# UTILITIES is seven entries from the top with the Bluetooth entry present.
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key return down
+key return up
+wait-text "RESCAN ROM DIRECTORY" 300
+key return down
+key return up
+wait-text "THIS WILL RESCAN YOUR ROM DIRECTORY" 300
+key return down
+key return up
+
+# The rescan finds no visible games and must show the profile empty-state dialog.
+wait-text "NO GAMES ARE VISIBLE FOR THIS PROFILE" 600
+assert-absent "IMPORT"
+assert-absent "CHANGE"
+assert-absent "CREATE"
+capture profile-no-games-rescan
+
+# The dialog has one non-mutating action: activating it quits cleanly.
+expect-exit
+controller a down
+controller a up

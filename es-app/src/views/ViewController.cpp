@@ -246,6 +246,33 @@ void ViewController::invalidSystemsFileDialog()
 
 void ViewController::noGamesDialog()
 {
+    // A profile session never changes the shared library. Hide the setup actions instead of
+    // letting this alternate entry path bypass the menu guards, and leave a clear way out.
+    if (ProfileMode::isMode()) {
+        LOG(LogInfo) << "ViewController::noGamesDialog(): shared library setup is disabled in "
+                        "profile mode";
+
+        mNoGamesErrorMessage =
+            _("NO GAMES ARE VISIBLE FOR THIS PROFILE. THE SHARED GAME LIBRARY IS MANAGED OUTSIDE "
+              "THE PROFILE SESSION, SO SHARED LIBRARY SETUP IS NOT AVAILABLE HERE. ASK THE LIBRARY "
+              "OWNER TO ADD GAMES, OR CHECK WHETHER THE GAMES ARE HIDDEN.");
+
+        mNoGamesMessageBox = new GuiMsgBox(
+            mNoGamesErrorMessage, _("QUIT"),
+            [] {
+                SDL_Event quit {};
+                quit.type = SDL_QUIT;
+                SDL_PushEvent(&quit);
+            },
+            "", nullptr, "", nullptr, "", nullptr, nullptr, true, true,
+            (mRenderer->getIsVerticalOrientation() ?
+                 0.86f :
+                 0.54f * (1.778f / mRenderer->getScreenAspectRatio())));
+
+        mWindow->pushGui(mNoGamesMessageBox);
+        return;
+    }
+
 #if defined(__ANDROID__) || defined(__IOS__)
     mNoGamesErrorMessage = _("NO GAME FILES WERE FOUND. EITHER IMPORT SOME GAMES OR "
                              "PLACE THEM MANUALLY IN THE CONFIGURED ROM DIRECTORY. "

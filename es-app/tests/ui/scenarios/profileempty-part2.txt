@@ -1,0 +1,12 @@
+# Second launch over the same staged data: the hidden state persisted by the first launch leaves
+# no visible games at startup, so the same non-mutating profile dialog is shown directly.
+wait-text "NO GAMES ARE VISIBLE FOR THIS PROFILE" 600
+assert-absent "IMPORT"
+assert-absent "CHANGE"
+assert-absent "CREATE"
+capture profile-no-games-startup
+
+# The startup dialog has the same single non-mutating action.
+expect-exit
+controller a down
+controller a up

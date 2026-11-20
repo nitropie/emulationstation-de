@@ -1,0 +1,44 @@
+# A failed profile-state write is reported in the UI and leaves the state file unchanged.
+wait-text "Super Nintendo Entertainment System" 600
+key return down
+key return up
+wait-view gamelist 300
+wait-frames 60
+controller back down
+controller back up
+wait-text "GAMELIST OPTIONS" 300
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key return down
+key return up
+wait-text "TIMES PLAYED" 300
+capture flush-editor
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+wait-frames 20
+key return down
+key return up
+wait-frames 30
+text "1"
+wait-frames 10
+key return down
+key return up
+wait-frames 30
+key backspace down
+key backspace up
+wait-text "SAVE CHANGES?" 300
+controller a down
+controller a up
+wait-text "COULD NOT SAVE THE PROFILE STATE" 600
+assert-text "COULD NOT SAVE THE PROFILE STATE"
+quit

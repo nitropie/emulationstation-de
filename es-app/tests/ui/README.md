@@ -62,6 +62,7 @@ are the only escapes.
 | `wait-text "TEXT" N` | Wait up to `N` frames until the scene shows `TEXT`. |
 | `assert-text "TEXT"` | Fail unless the scene shows `TEXT`. |
 | `assert-absent "TEXT"` | Fail if the scene shows `TEXT`. |
+| `assert-cursor "NAME"` | Fail unless the active gamelist cursor is the named entry. |
 | `capture NAME` | Print the frame hashes and the scene text under `NAME`. |
 | `key NAME down\|up` | Push an SDL keyboard event. Names: `escape`, `return`, `backspace`, `insert`, `delete`, `up`, `down`, `left`, `right`, `pageup`, `pagedown`, `home`, `end`, or any SDL key name. |
 | `controller NAME down\|up` | Push an SDL controller event from an attached virtual controller. Names: `a`, `b`, `x`, `y`, `start`, `back`, `up`, `down`, `left`, `right`, `leftshoulder`, `rightshoulder`. |

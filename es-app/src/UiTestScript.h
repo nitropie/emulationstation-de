@@ -24,6 +24,7 @@ namespace UiTest
         waitView,
         assertText,
         assertAbsent,
+        assertCursor,
         capture,
         key,
         controller,

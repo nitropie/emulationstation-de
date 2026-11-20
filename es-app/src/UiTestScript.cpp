@@ -195,6 +195,14 @@ bool UiTest::parseScript(const std::string& script, std::vector<Step>& steps, st
             if (!parseFrames(tokens[2], step.frames, error))
                 return fail(error);
         }
+        else if (verb == "assert-cursor") {
+            step.verb = Verb::assertCursor;
+            if (tokens.size() != 2)
+                return fail("assert-cursor takes one argument");
+            if (!tokens[1].quoted || tokens[1].value.empty())
+                return fail("assert-cursor needs a quoted, non-empty string");
+            step.text = tokens[1].value;
+        }
         else if (verb == "assert-text" || verb == "assert-absent" || verb == "text") {
             step.verb = verb == "assert-text"   ? Verb::assertText :
                         verb == "assert-absent" ? Verb::assertAbsent :

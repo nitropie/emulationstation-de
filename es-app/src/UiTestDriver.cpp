@@ -8,10 +8,12 @@
 
 #include "UiTestDriver.h"
 
+#include "FileData.h"
 #include "GuiComponent.h"
 #include "UiTestScript.h"
 #include "Window.h"
 #include "renderers/Renderer.h"
+#include "views/GamelistView.h"
 #include "views/ViewController.h"
 
 #if defined(USE_OPENGLES)
@@ -93,6 +95,8 @@ namespace
         if (sSceneTextFrame != sFrame) {
             sSceneText.clear();
             collectText(Window::getInstance()->peekGui(), true, {0.0f, 0.0f}, sSceneText, 0);
+            collectText(Window::getInstance()->getInfoPopup(), true, {0.0f, 0.0f}, sSceneText,
+                        0);
             std::sort(sSceneText.begin(), sSceneText.end());
             sSceneTextFrame = sFrame;
         }
@@ -395,6 +399,22 @@ void UiTest::frame()
             case Verb::assertAbsent: {
                 if (sceneHasText(step.text)) {
                     fail(step, "the scene still shows \"" + step.text + "\"");
+                    return;
+                }
+                ++sIndex;
+                break;
+            }
+            case Verb::assertCursor: {
+                ViewController* controller {ViewController::getInstance()};
+                const std::shared_ptr<GamelistView> view {
+                    controller->getGamelistView(controller->getState().getSystem())};
+                FileData* cursor {view ? view->getCursor() : nullptr};
+                if (cursor == nullptr) {
+                    fail(step, "there is no active gamelist cursor");
+                    return;
+                }
+                if (cursor->getName() != step.text) {
+                    fail(step, "the gamelist cursor is \"" + cursor->getName() + "\"");
                     return;
                 }
                 ++sIndex;

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings>
+    <string name="SaveGamelistsMode" value="on exit" />
+    <string name="CollectionSystemsAuto" value="all,favorites,recent" />
+    <bool name="ShowHiddenGames" value="false" />
+</settings>

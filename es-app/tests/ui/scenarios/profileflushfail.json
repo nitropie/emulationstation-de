@@ -1,0 +1,12 @@
+{
+  "runs": 2,
+  "profile": {
+    "fixture": "profileflushfail",
+    "id": "c4a1e8d2-7b39-4c05-9f61-8d2a5e0b7c43",
+    "metadata": "profile.json"
+  },
+  "launch": ["profileflushfail.txt"],
+  "files": [
+    { "path": "appdata/profile-state/snes.json", "golden": "profile-state/snes.json" }
+  ]
+}

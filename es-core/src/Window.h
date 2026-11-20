@@ -134,6 +134,9 @@ public:
     {
         mInfoPopupQueue.emplace(std::make_pair(message, duration));
     }
+    // The info popup is rendered outside the GUI stack. Expose it so the native UI test driver
+    // can include its text in scene assertions.
+    GuiInfoPopup* getInfoPopup() const { return mInfoPopup; }
     void stopInfoPopup();
 
     void startScreensaver(bool onTimer);

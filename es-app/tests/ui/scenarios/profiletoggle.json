@@ -1,0 +1,9 @@
+{
+  "runs": 2,
+  "profile": {
+    "fixture": "profilecollections",
+    "id": "bbb35f7a-a579-4721-8510-2f777c27225a",
+    "metadata": "profile.json"
+  },
+  "launch": ["profiletoggle-part1.txt", "profiletoggle-part2.txt"]
+}

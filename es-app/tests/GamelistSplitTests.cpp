@@ -221,6 +221,47 @@ TEST_CASE(sharedWriterDropsPersonalStateAndKeepsUnrecognizedChildren)
     EXPECT(output.find("<note>unknown child element</note>") != std::string::npos);
 }
 
+TEST_CASE(sharedWriterPreservesNestedUnknownChildren)
+{
+    Fixture fixture;
+    FileData* record {fixture.node("First Game (USA).sfc")};
+    EXPECT(record != nullptr);
+    if (record == nullptr)
+        return;
+
+    const std::string existing {
+        "<?xml version=\"1.0\"?><gameList><game><path>./First Game (USA).sfc</path>"
+        "<name>First Game</name><desc>First fixture game.</desc><favorite>true</favorite>"
+        "<mystery attr=\"keep\"><payload><item>one</item><item>two</item></payload>"
+        "<note>plain</note></mystery></game></gameList>"};
+
+    const std::string output {
+        GamelistFileParser::writeSharedDocument(existing, *fixture.system, {record})};
+
+    pugi::xml_document document;
+    const pugi::xml_parse_result parsed {document.load_buffer(output.data(), output.size())};
+    EXPECT(parsed);
+    if (!parsed)
+        return;
+
+    const pugi::xml_node game {document.child("gameList").child("game")};
+    const pugi::xml_node mystery {game.child("mystery")};
+    EXPECT(mystery);
+    EXPECT(std::string {mystery.attribute("attr").value()} == "keep");
+
+    // A nested unknown subtree keeps its structure and values, not just its outer element.
+    const pugi::xml_node payload {mystery.child("payload")};
+    const pugi::xml_node firstItem {payload.child("item")};
+    EXPECT(payload);
+    EXPECT(std::string {firstItem.text().get()} == "one");
+    EXPECT(std::string {firstItem.next_sibling().text().get()} == "two");
+    EXPECT(std::string {mystery.child("note").text().get()} == "plain");
+
+    // The rewritten entry keeps shared fields but loses personal state.
+    EXPECT(game.child("name"));
+    EXPECT(!game.child("favorite"));
+}
+
 TEST_CASE(sharedWriterRefusesAnUnusableDocument)
 {
     Fixture fixture;

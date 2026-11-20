@@ -700,8 +700,6 @@ namespace GamelistFileParser
                     if (name != "path" && !isDeclaredKey(name, type))
                         unrecognized.push_back(child);
                 }
-
-                root.remove_child(existing);
             }
 
             pugi::xml_node node {root.append_child(tag)};
@@ -710,8 +708,14 @@ namespace GamelistFileParser
                 Utils::FileSystem::createRelativePath(record->getPath(), system.getStartPath(),
                                                       false)
                     .c_str());
+
+            // The unrecognized children are handles into the old entry. Keep that entry alive
+            // until their copies belong to the new node; removing it first invalidates them.
             for (pugi::xml_node child : unrecognized)
                 node.append_copy(child);
+
+            if (existing)
+                root.remove_child(existing);
         }
 
         std::ostringstream stream;

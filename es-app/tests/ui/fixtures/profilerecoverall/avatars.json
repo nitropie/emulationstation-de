@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "default": "dog",
+  "avatars": [
+    { "id": "dog", "file": "dog.png", "label": "Dog" },
+    { "id": "cat", "file": "cat.png", "label": "Cat" },
+    { "id": "owl", "file": "owl.png", "label": "Owl" }
+  ]
+}

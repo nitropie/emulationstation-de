@@ -755,8 +755,17 @@ std::string SystemData::capturePersonalState()
     if (mPersonalStore == nullptr || mIsCollectionSystem || mRootFolder == nullptr)
         return {};
 
-    // An unresolved store accepts nothing. The change flags stay set so the next flush, which
-    // reports the reason, still sees the pending changes.
+    // The personal-state gate is process-wide: a resolved store accepts nothing while another
+    // store in the profile is unresolved. The change flags stay set, so the next save point after
+    // the profile resolves still sees the pending changes.
+    if (!ProfileMode::storesResolved()) {
+        LOG(LogWarning) << "SystemData::capturePersonalState(): not capturing while the profile "
+                           "state is unresolved";
+        return {};
+    }
+
+    // An unresolved store accepts nothing either. The change flags stay set so the next flush,
+    // which reports the reason, still sees the pending changes.
     if (!mPersonalStore->isResolved())
         return {};
 
@@ -799,6 +808,14 @@ ProfileState::FlushResult SystemData::flushPersonalState()
 {
     if (mPersonalStore == nullptr || mIsCollectionSystem)
         return {ProfileState::FlushStatus::nothingToDo, ""};
+
+    // Nothing is written while any store is unresolved, not even from a store that is itself
+    // ready. The failure keeps the staged changes and reports why.
+    if (!ProfileMode::storesResolved()) {
+        const std::string reason {"the profile state is unresolved"};
+        LOG(LogWarning) << "SystemData::flushPersonalState(): " << reason;
+        return {ProfileState::FlushStatus::failure, reason};
+    }
 
     const std::string rejection {capturePersonalState()};
 

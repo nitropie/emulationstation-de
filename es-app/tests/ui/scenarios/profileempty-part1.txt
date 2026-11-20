@@ -70,6 +70,7 @@ key down up
 key return down
 key return up
 wait-text "RESCAN ROM DIRECTORY" 300
+wait-frames 30
 key return down
 key return up
 wait-text "THIS WILL RESCAN YOUR ROM DIRECTORY" 300

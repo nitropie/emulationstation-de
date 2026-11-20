@@ -1,0 +1,18 @@
+# Both stores recover from their backups. The rescan after the recovery then exposes the library
+# with the recovered overlays applied to both systems.
+wait-text "THE PROFILE STATE COULD NOT BE LOADED" 600
+assert-text "snes"
+assert-text "genesis"
+controller a down
+controller a up
+
+# The system view is sorted by fullname, so Sega Genesis is selected first.
+wait-text "Sega Genesis" 600
+assert-text "Genesis fixture game."
+capture recovered-genesis
+key right down
+key right up
+wait-text "Super Nintendo Entertainment System" 300
+assert-text "Fixture game for the native UI scenario."
+capture recovered-snes
+quit

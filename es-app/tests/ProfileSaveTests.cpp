@@ -692,6 +692,185 @@ TEST_CASE(profileUnresolvedStoreKeepsPendingChanges)
     leaveProfileMode();
 }
 
+// A newly opened store is part of the process-wide gate. This is the state a rescan reaches when
+// a configured system directory that was absent at startup appears and its state is unreadable:
+// the already loaded systems have resolved stores, but the profile as a whole is unresolved.
+TEST_CASE(profileNewlyOpenedUnresolvedStoreBlocksTheProfile)
+{
+    Fixture first {"saturn"};
+    Fixture second {"dreamcast"};
+
+    const std::string tooNew {"{\n  \"schema\": \"nitropie.profile-state\",\n  \"version\": "
+                              "99,\n  \"system\": \"dreamcast\",\n  "
+                              "\"systemPreferences\": {},\n  \"entries\": []\n}\n"};
+    writeFile(second.statePath(), tooNew);
+
+    first.enterProfileMode();
+
+    SystemData* loaded {loadSystem(first)};
+    EXPECT(ProfileMode::storesResolved());
+
+    // The rescan discovers the second system and opens its store for the first time.
+    SystemData* discovered {loadSystem(second)};
+    EXPECT(!ProfileMode::storesResolved());
+
+    delete discovered;
+    delete loaded;
+    leaveProfileMode();
+}
+
+// A partial recovery resolves one store but leaves another unresolved. The recovered store is
+// dirty, yet the process-wide gate must keep every state byte untouched, including pending
+// changes in the already loaded tree, until the whole profile resolves.
+TEST_CASE(profilePartialRecoveryDoesNotPublishResolvedStores)
+{
+    Fixture first {"saturn"};
+    Fixture second {"dreamcast"};
+
+    const std::string corruptFirst {
+        "{\n  \"schema\": \"nitropie.profile-state\",\n  \"version\": 99,\n  "
+        "\"system\": \"saturn\",\n  \"systemPreferences\": {},\n  \"entries\": []\n}\n"};
+    const std::string corruptSecond {
+        "{\n  \"schema\": \"nitropie.profile-state\",\n  \"version\": 99,\n  "
+        "\"system\": \"dreamcast\",\n  \"systemPreferences\": {},\n  \"entries\": []\n}\n"};
+    const std::string backupFirst {testData("recovery-a-backup.json")};
+
+    writeFile(first.statePath(), corruptFirst);
+    writeFile(fs::path {first.statePath().string() + ".bak"}, backupFirst);
+    writeFile(second.statePath(), corruptSecond);
+
+    first.enterProfileMode();
+
+    SystemData* recovered {loadSystem(first)};
+    SystemData* unresolved {loadSystem(second)};
+    EXPECT(!ProfileMode::storesResolved());
+
+    // Only the first store can recover; the second has no backup.
+    EXPECT(!ProfileMode::recoverStores());
+    EXPECT(!ProfileMode::storesResolved());
+
+    FileData* alpha {findNode(*recovered, "Alpha Game (USA).sfc")};
+    EXPECT(alpha != nullptr);
+    if (alpha != nullptr)
+        alpha->metadata.set("favorite", "true");
+
+    SystemData::sSystemVector.push_back(recovered);
+    SystemData::sSystemVector.push_back(unresolved);
+    SystemData::captureAllPersonalStates();
+    SystemData::sSystemVector.pop_back();
+    SystemData::sSystemVector.pop_back();
+
+    const auto failures {ProfileMode::flushStores()};
+    EXPECT(failures.size() == 2);
+    if (failures.size() == 2) {
+        EXPECT(failures.at(0).first == "dreamcast");
+        EXPECT(failures.at(1).first == "saturn");
+        EXPECT(!failures.at(0).second.empty());
+        EXPECT(!failures.at(1).second.empty());
+    }
+
+    EXPECT(readFile(first.statePath()) == corruptFirst);
+    EXPECT(readFile(second.statePath()) == corruptSecond);
+    EXPECT(readFile(fs::path {first.statePath().string() + ".bak"}) == backupFirst);
+
+    // Recovered state and the pending edit are still staged in memory, not dropped.
+    if (recovered->personalStore() != nullptr)
+        EXPECT(recovered->personalStore()->hasPendingWrites());
+    if (alpha != nullptr)
+        EXPECT(alpha->metadata.wasChanged());
+
+    delete recovered;
+    delete unresolved;
+    leaveProfileMode();
+}
+
+// A session-level unresolved profile with no open stores still reports a failed flush instead of
+// an empty, apparently successful result.
+TEST_CASE(profileUnresolvedSessionReportsSkippedFlush)
+{
+    const fs::path session {fs::temp_directory_path() / "es-de-profile-unresolved-session"};
+    fs::remove_all(session);
+    const std::string catalog {(session / "missing.json").string()};
+    setenv("NITROPIE_PROFILE_CATALOG", catalog.c_str(), 1);
+    setenv("NITROPIE_PROFILE_ID", sProfileId, 1);
+    ProfileMode::initialize();
+
+    EXPECT(ProfileMode::isMode());
+    EXPECT(!ProfileMode::storesResolved());
+
+    const auto failures {ProfileMode::flushStores()};
+    EXPECT(failures.size() == 1);
+    if (failures.size() == 1) {
+        EXPECT(failures.at(0).first == "profile");
+        EXPECT(!failures.at(0).second.empty());
+    }
+
+    leaveProfileMode();
+}
+
+// A retry after the second store gains a usable backup resolves the whole profile, and only then
+// are the recovered stores and the pending edit published.
+TEST_CASE(profilePartialRecoveryRetryPublishesAllStores)
+{
+    Fixture first {"saturn"};
+    Fixture second {"dreamcast"};
+
+    const std::string corruptFirst {
+        "{\n  \"schema\": \"nitropie.profile-state\",\n  \"version\": 99,\n  "
+        "\"system\": \"saturn\",\n  \"systemPreferences\": {},\n  \"entries\": []\n}\n"};
+    const std::string corruptSecond {
+        "{\n  \"schema\": \"nitropie.profile-state\",\n  \"version\": 99,\n  "
+        "\"system\": \"dreamcast\",\n  \"systemPreferences\": {},\n  \"entries\": []\n}\n"};
+    const std::string backupFirst {testData("recovery-a-backup.json")};
+    const std::string backupSecond {testData("recovery-b-backup.json")};
+
+    writeFile(first.statePath(), corruptFirst);
+    writeFile(fs::path {first.statePath().string() + ".bak"}, backupFirst);
+    writeFile(second.statePath(), corruptSecond);
+
+    first.enterProfileMode();
+
+    SystemData* firstAttempt {loadSystem(first)};
+    SystemData* secondAttempt {loadSystem(second)};
+    EXPECT(!ProfileMode::recoverStores());
+
+    // The second backup appears and the retry resolves every store.
+    writeFile(fs::path {second.statePath().string() + ".bak"}, backupSecond);
+    EXPECT(ProfileMode::recoverStores());
+    EXPECT(ProfileMode::storesResolved());
+
+    // The next rescan rebuilds the trees from the recovered stores before any capture happens.
+    delete firstAttempt;
+    delete secondAttempt;
+    SystemData* firstSystem {loadSystem(first)};
+    SystemData* secondSystem {loadSystem(second)};
+
+    FileData* alpha {findNode(*firstSystem, "Alpha Game (USA).sfc")};
+    EXPECT(alpha != nullptr);
+    if (alpha != nullptr) {
+        EXPECT(alpha->metadata.get("playcount") == "4");
+        alpha->metadata.set("favorite", "true");
+    }
+
+    SystemData::sSystemVector.push_back(firstSystem);
+    SystemData::sSystemVector.push_back(secondSystem);
+    SystemData::captureAllPersonalStates();
+    SystemData::sSystemVector.pop_back();
+    SystemData::sSystemVector.pop_back();
+
+    const auto failures {ProfileMode::flushStores()};
+    EXPECT(failures.empty());
+
+    EXPECT(readFile(first.statePath()) == testData("recovery-a-restored.json"));
+    EXPECT(readFile(second.statePath()) == backupSecond);
+    EXPECT(readFile(fs::path {first.statePath().string() + ".bak"}) == backupFirst);
+    EXPECT(readFile(fs::path {second.statePath().string() + ".bak"}) == backupSecond);
+
+    delete firstSystem;
+    delete secondSystem;
+    leaveProfileMode();
+}
+
 // The gamelist writer itself refuses to run in profile mode, whichever caller reaches it.
 TEST_CASE(profileWriterRefusesTheSharedGamelist)
 {

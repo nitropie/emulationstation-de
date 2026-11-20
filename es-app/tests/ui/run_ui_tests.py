@@ -115,9 +115,9 @@ def stage_profile_state(fixture_root, appdata):
 
 
 def stage_gamelist_data(fixture_root, home, appdata):
-    roms = os.path.join(home, "ROMs", "snes")
-    for directory in (roms, os.path.join(appdata, "custom_systems"),
-                      os.path.join(appdata, "gamelists", "snes"),
+    roms_root = os.path.join(home, "ROMs")
+    for directory in (roms_root, os.path.join(appdata, "custom_systems"),
+                      os.path.join(appdata, "gamelists"),
                       os.path.join(appdata, "settings")):
         os.makedirs(directory, exist_ok=True)
 
@@ -125,11 +125,18 @@ def stage_gamelist_data(fixture_root, home, appdata):
                     os.path.join(appdata, "custom_systems", "es_systems.xml"))
     shutil.copyfile(os.path.join(fixture_root, "settings", "es_settings.xml"),
                     os.path.join(appdata, "settings", "es_settings.xml"))
-    gamelist = os.path.join(appdata, "gamelists", "snes", "gamelist.xml")
-    shutil.copyfile(os.path.join(fixture_root, "gamelists", "snes", "gamelist.xml"), gamelist)
-    os.chmod(gamelist, 0o644)
-    # A fixture may ship ROM folders, so the tree is copied with its structure intact.
-    shutil.copytree(os.path.join(fixture_root, "roms", "snes"), roms, dirs_exist_ok=True)
+    # A fixture may ship more than one system. Every ROM tree keeps its structure and every
+    # gamelist is copied and made writable, because the frontend has to be able to rewrite them
+    # in legacy mode.
+    for system in sorted(os.listdir(os.path.join(fixture_root, "roms"))):
+        shutil.copytree(os.path.join(fixture_root, "roms", system),
+                        os.path.join(roms_root, system), dirs_exist_ok=True)
+    for system in sorted(os.listdir(os.path.join(fixture_root, "gamelists"))):
+        source = os.path.join(fixture_root, "gamelists", system)
+        target = os.path.join(appdata, "gamelists", system)
+        shutil.copytree(source, target, dirs_exist_ok=True)
+        for name in os.listdir(target):
+            os.chmod(os.path.join(target, name), 0o644)
 
     stage_profile_state(fixture_root, appdata)
 

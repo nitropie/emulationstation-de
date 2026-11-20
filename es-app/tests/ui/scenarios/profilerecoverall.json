@@ -1,0 +1,35 @@
+{
+  "runs": 2,
+  "profile": {
+    "fixture": "profilerecoverall",
+    "id": "bbb35f7a-a579-4721-8510-2f777c27225a",
+    "metadata": "profile.json"
+  },
+  "launch": ["profilerecoverall.txt"],
+  "files": [
+    {
+      "path": "appdata/profile-state/snes.json",
+      "golden": "profile-state/snes.json.bak"
+    },
+    {
+      "path": "appdata/profile-state/snes.json.bak",
+      "golden": "profile-state/snes.json.bak"
+    },
+    {
+      "path": "appdata/profile-state/genesis.json",
+      "golden": "profile-state/genesis.json.bak"
+    },
+    {
+      "path": "appdata/profile-state/genesis.json.bak",
+      "golden": "profile-state/genesis.json.bak"
+    },
+    {
+      "path": "appdata/gamelists/snes/gamelist.xml",
+      "golden": "gamelists/snes/gamelist.xml"
+    },
+    {
+      "path": "appdata/gamelists/genesis/gamelist.xml",
+      "golden": "gamelists/genesis/gamelist.xml"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "genesis",
+  "systemPreferences": {},
+  "entries": [
+    {
+      "type": "game",
+      "path": "Beta Game (USA).md",
+      "fields": {
+        "favorite": true,
+        "playcount": 7
+      }
+    }
+  ]
+}

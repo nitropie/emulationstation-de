@@ -1,0 +1,10 @@
+# A no-games startup whose profile metadata is unresolved must keep the recovery gate. The
+# empty-library dialog must not replace it.
+wait-text "THE PROFILE STATE COULD NOT BE LOADED" 600
+assert-text "the id"
+assert-absent "NO GAMES ARE VISIBLE FOR THIS PROFILE"
+capture profile-unresolved-no-games
+
+expect-exit
+controller a down
+controller a up

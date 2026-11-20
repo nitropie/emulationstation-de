@@ -1,0 +1,28 @@
+# Profile mode: two unresolved stores, one recoverable and one not. A partial recovery must
+# keep the library hidden and must not write any state file.
+wait-text "THE PROFILE STATE COULD NOT BE LOADED" 600
+assert-text "snes"
+assert-text "genesis"
+assert-absent "Alpha Game"
+assert-absent "Beta Game"
+capture profile-partial-gate
+
+# RECOVER FROM BACKUP is the first button; only the snes store has a usable backup.
+controller a down
+controller a up
+# The recovery triggers a synchronous rescan that rebuilds the systems; let it finish before
+# checking the rebuilt dialog, which has the same title as the one that was just dismissed.
+wait-frames 240
+
+# The rescan gate re-evaluates the profile after the partial recovery. The genesis store is
+# still unresolved, so the library must stay hidden and the dialog is rebuilt.
+wait-text "THE PROFILE STATE COULD NOT BE LOADED" 600
+assert-text "genesis"
+assert-absent "snes"
+assert-absent "Alpha Game"
+assert-absent "Beta Game"
+capture profile-partial-still-unresolved
+
+expect-exit
+controller a down
+controller a up

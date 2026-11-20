@@ -1,0 +1,15 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "saturn",
+  "systemPreferences": {},
+  "entries": [
+    {
+      "type": "game",
+      "path": "Alpha Game (USA).sfc",
+      "fields": {
+        "playcount": 4
+      }
+    }
+  ]
+}

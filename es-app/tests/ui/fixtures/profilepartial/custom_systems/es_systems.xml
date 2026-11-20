@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<systemList>
+    <system>
+        <name>snes</name>
+        <fullname>Super Nintendo Entertainment System</fullname>
+        <path>%ROMPATH%/snes</path>
+        <extension>.sfc .SFC</extension>
+        <command>true %ROM%</command>
+        <platform>snes</platform>
+        <theme>snes</theme>
+    </system>
+    <system>
+        <name>genesis</name>
+        <fullname>Sega Genesis</fullname>
+        <path>%ROMPATH%/genesis</path>
+        <extension>.md .MD .bin .BIN .gen .GEN</extension>
+        <command>true %ROM%</command>
+        <platform>genesis</platform>
+        <theme>genesis</theme>
+    </system>
+</systemList>

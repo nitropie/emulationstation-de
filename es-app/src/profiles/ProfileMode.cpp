@@ -255,6 +255,27 @@ std::vector<std::pair<std::string, std::string>> ProfileMode::flushStores()
 {
     std::vector<std::pair<std::string, std::string>> failures;
 
+    // The persistence gate is process-wide. While any store is unresolved, nothing is written,
+    // including stores that have just recovered from a backup: their dirty state stays staged in
+    // memory until the whole profile resolves. Report every skipped store so a shutdown cannot
+    // look like a successful flush.
+    if (!storesResolved()) {
+        if (sMode) {
+            LOG(LogWarning) << "Profile mode: not flushing personal state while the profile is "
+                               "unresolved";
+            for (const std::pair<const std::string, std::unique_ptr<ProfileState::JsonStore>>&
+                     entry : sStores) {
+                failures.emplace_back(entry.first,
+                                      "the profile state is unresolved; nothing was written");
+            }
+        }
+
+        if (failures.empty())
+            failures.emplace_back("profile",
+                                  "the profile state is unresolved; nothing was written");
+        return failures;
+    }
+
     for (std::pair<const std::string, std::unique_ptr<ProfileState::JsonStore>>& entry : sStores) {
         const ProfileState::FlushResult result {entry.second->flush()};
         if (result.status == ProfileState::FlushStatus::failure)

@@ -1,0 +1,41 @@
+# Legacy mode: a rescan is not gated by the profile store state and the library is shown again.
+wait-text "Super Nintendo Entertainment System" 600
+key escape down
+key escape up
+wait-text "MAIN MENU" 120
+
+# UTILITIES is seven entries from the top with the Bluetooth entry present.
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key return down
+key return up
+wait-text "RESCAN ROM DIRECTORY" 300
+wait-frames 30
+# GAME IMPORTER, ORPHANED DATA CLEANUP and CREATE/UPDATE precede RESCAN in legacy mode.
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key return down
+key return up
+wait-text "THIS WILL RESCAN YOUR ROM DIRECTORY" 300
+key return down
+key return up
+wait-text "Super Nintendo Entertainment System" 600
+assert-text "Second fixture game."
+capture legacy-rescan
+quit

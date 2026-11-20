@@ -1,0 +1,7 @@
+{
+  "schema": "nitropie.profile",
+  "version": 1,
+  "id": "wrong-profile-id",
+  "displayName": "Tester",
+  "avatar": "dog"
+}

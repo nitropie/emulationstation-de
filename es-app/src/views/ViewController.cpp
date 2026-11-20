@@ -246,6 +246,16 @@ void ViewController::invalidSystemsFileDialog()
 
 void ViewController::noGamesDialog()
 {
+    // The empty-library dialog must never obscure the profile recovery flow. This also covers a
+    // resize/reinit or any other caller that reaches the no-games path while stores are
+    // unresolved.
+    if (ProfileMode::isMode() && !ProfileMode::storesResolved()) {
+        LOG(LogError) << "ViewController::noGamesDialog(): the profile state is unresolved, "
+                         "showing the recovery dialog";
+        profileUnresolvedDialog();
+        return;
+    }
+
     // A profile session never changes the shared library. Hide the setup actions instead of
     // letting this alternate entry path bypass the menu guards, and leave a clear way out.
     if (ProfileMode::isMode()) {
@@ -456,17 +466,17 @@ void ViewController::profileUnresolvedDialog()
         SDL_PushEvent(&quitEvent);
     };
 
-    // Recovery re-reads the library with the recovered state applied.
+    // Recovery re-reads the library with the recovered state applied. A partial recovery keeps
+    // the process-wide gate closed, so the rescan shows the unresolved dialog again instead of
+    // exposing the systems that did recover.
     const auto recover = [this] {
-        if (ProfileMode::recoverStores()) {
+        if (ProfileMode::recoverStores())
             LOG(LogInfo) << "The profile state was recovered from its backup";
-            rescanROMDirectory();
-        }
-        else {
+        else
             LOG(LogError) << "The profile state is still unresolved: "
                           << ProfileMode::unresolvedReason();
-            profileUnresolvedDialog();
-        }
+
+        rescanROMDirectory();
     };
 
     const float widthMultiplier {mRenderer->getIsVerticalOrientation() ?
@@ -1776,6 +1786,11 @@ void ViewController::checkWindowSizeChanged()
         goToStart(false);
         resetCamera();
     }
+    else if (ProfileMode::isMode() && !ProfileMode::storesResolved()) {
+        // The force-kill above removed the unresolved dialog. Reopen it instead of replacing the
+        // recovery flow with the empty-library dialog.
+        profileUnresolvedDialog();
+    }
     else {
         noGamesDialog();
     }
@@ -1811,7 +1826,20 @@ void ViewController::rescanROMDirectory()
         return;
     }
 
-    if (SystemData::sSystemVector.empty()) {
+    // A rescan can load a system whose state was not open before, for example a system directory
+    // that was absent at startup. Recheck the process-wide resolution before exposing any view.
+    if (ProfileMode::isMode() && !ProfileMode::storesResolved()) {
+        LOG(LogError) << "The profile state is unresolved after the rescan, the library is not "
+                         "shown: "
+                      << ProfileMode::unresolvedReason();
+        mWindow->setBlockInput(false);
+        mWindow->invalidateCachedBackground();
+        mWindow->passHelpComponents(nullptr);
+        mWindow->passClockComponents(nullptr);
+        mWindow->passSystemStatusComponents(nullptr);
+        profileUnresolvedDialog();
+    }
+    else if (SystemData::sSystemVector.empty()) {
         // It's possible that there are no longer any games.
         mWindow->setBlockInput(false);
         mWindow->invalidateCachedBackground();

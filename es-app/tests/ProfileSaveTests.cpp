@@ -22,10 +22,12 @@
 #include "profiles/ProfileStateStore.h"
 #include "scrapers/Scraper.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -51,6 +53,22 @@ namespace
         fs::create_directories(path.parent_path());
         std::ofstream file {path, std::ios::binary | std::ios::trunc};
         file << contents;
+    }
+
+    // Every regular file below `root`, relative to it and sorted, so a test can assert the exact
+    // set of paths that a refused write left behind.
+    std::vector<fs::path> filesUnder(const fs::path& root)
+    {
+        std::vector<fs::path> files;
+        if (!fs::exists(root))
+            return files;
+
+        for (const fs::directory_entry& entry : fs::recursive_directory_iterator {root}) {
+            if (entry.is_regular_file())
+                files.push_back(fs::relative(entry.path(), root));
+        }
+        std::sort(files.begin(), files.end());
+        return files;
     }
 
     std::string testData(const std::string& name)
@@ -1006,6 +1024,10 @@ TEST_CASE(profileScraperMediaBoundaryRefusesInProfileMode)
         std::unique_ptr<MDResolveHandle> handle {resolveMetaDataAssets(result, params)};
         handle->update();
         EXPECT(!handle->getSavedNewMedia());
+        EXPECT(handle->status() == ASYNC_ERROR);
+        EXPECT(!handle->getRetry());
+        EXPECT(handle->getFatalError());
+        EXPECT(handle->getStatusString().find("profile") != std::string::npos);
     }
     EXPECT(!fs::exists(mediaDirectory));
 
@@ -1029,6 +1051,109 @@ TEST_CASE(profileScraperMediaBoundaryRefusesInProfileMode)
     const fs::path coverPath {mediaDirectory / "neogeocd" / "covers" / "Alpha Game (USA).png"};
     EXPECT(fs::exists(coverPath));
     EXPECT(readFile(coverPath) == cover);
+
+    delete legacySystem;
+    Settings::getInstance()->setString("MediaDirectory", "");
+}
+
+// Miximage generation is a shared-media write reached after asset resolution. With an existing
+// screenshot and overwrite enabled, the generator must refuse in profile mode and leave both the
+// screenshot and an existing miximage untouched; legacy mode regenerates the miximage.
+TEST_CASE(profileMiximageGeneratorRefusesInProfileMode)
+{
+    Fixture fixture {"pcfx"};
+    const fs::path mediaDirectory {fixture.root / "miximage-media"};
+    Settings::getInstance()->setString("MediaDirectory", mediaDirectory.string());
+    Settings::getInstance()->setBool("MiximageGenerate", true);
+    Settings::getInstance()->setBool("MiximageOverwrite", true);
+    Settings::getInstance()->setBool("MiximageIncludeMarquee", false);
+    Settings::getInstance()->setBool("MiximageIncludeBox", false);
+    Settings::getInstance()->setBool("MiximageIncludePhysicalMedia", false);
+    Settings::getInstance()->setString("MiximageFileFormat", "png");
+
+    const std::string image {testData("scraper-cover.png")};
+    const std::string sentinel {"existing miximage sentinel"};
+
+    fixture.enterProfileMode();
+    SystemData* system {loadSystem(fixture)};
+    FileData* game {findNode(*system, "Alpha Game (USA).sfc")};
+    EXPECT(game != nullptr);
+
+    const fs::path screenshot {mediaDirectory / "pcfx" / "screenshots" / "Alpha Game (USA).png"};
+    writeFile(screenshot, image);
+    const fs::path miximage {mediaDirectory / "pcfx" / "miximages" / "Alpha Game (USA).png"};
+
+    // Missing miximage: the refusal must not create the miximages directory or a file.
+    EXPECT(!fs::exists(miximage));
+    {
+        std::string message;
+        MiximageGenerator generator {game, message};
+        std::promise<bool> promise;
+        std::future<bool> future {promise.get_future()};
+        generator.startThread(&promise);
+        EXPECT(future.get());
+        EXPECT(message.find("profile") != std::string::npos);
+    }
+    EXPECT(!fs::exists(miximage));
+    EXPECT(!fs::exists(miximage.parent_path()));
+
+    // The only file below the media directory is the screenshot the test put there: the refusal
+    // created no directory and no other media.
+    EXPECT((filesUnder(mediaDirectory) ==
+            std::vector<fs::path> {fs::path {"pcfx/screenshots/Alpha Game (USA).png"}}));
+
+    // Pre-existing miximage: with overwrite enabled, the refusal must leave every byte intact.
+    writeFile(miximage, sentinel);
+    {
+        std::string message;
+        MiximageGenerator generator {game, message};
+        std::promise<bool> promise;
+        std::future<bool> future {promise.get_future()};
+        generator.startThread(&promise);
+        EXPECT(future.get());
+        EXPECT(message.find("profile") != std::string::npos);
+    }
+    EXPECT(readFile(miximage) == sentinel);
+    EXPECT(readFile(screenshot) == image);
+    EXPECT((filesUnder(mediaDirectory) ==
+            std::vector<fs::path> {fs::path {"pcfx/miximages/Alpha Game (USA).png"},
+                                   fs::path {"pcfx/screenshots/Alpha Game (USA).png"}}));
+
+    delete system;
+    leaveProfileMode();
+
+    // Legacy mode uses the same existing screenshot and overwrite setting and writes the image.
+    Fixture legacy {"wonderswan"};
+    SystemData* legacySystem {loadSystem(legacy)};
+    FileData* legacyGame {findNode(*legacySystem, "Alpha Game (USA).sfc")};
+    EXPECT(legacyGame != nullptr);
+
+    const fs::path legacyScreenshot {mediaDirectory / "wonderswan" / "screenshots" /
+                                     "Alpha Game (USA).png"};
+    writeFile(legacyScreenshot, image);
+    const fs::path legacyMiximage {mediaDirectory / "wonderswan" / "miximages" /
+                                   "Alpha Game (USA).png"};
+    writeFile(legacyMiximage, sentinel);
+
+    {
+        std::string message;
+        MiximageGenerator generator {legacyGame, message};
+        std::promise<bool> promise;
+        std::future<bool> future {promise.get_future()};
+        generator.startThread(&promise);
+        EXPECT(!future.get());
+    }
+    EXPECT(fs::exists(legacyMiximage));
+    const std::string generated {readFile(legacyMiximage)};
+    EXPECT(generated != sentinel);
+    EXPECT(generated.size() > 8);
+    EXPECT(generated.compare(0, 8, "\x89PNG\r\n\x1a\n") == 0);
+    EXPECT(readFile(legacyScreenshot) == image);
+    EXPECT((filesUnder(mediaDirectory) ==
+            std::vector<fs::path> {fs::path {"pcfx/miximages/Alpha Game (USA).png"},
+                                   fs::path {"pcfx/screenshots/Alpha Game (USA).png"},
+                                   fs::path {"wonderswan/miximages/Alpha Game (USA).png"},
+                                   fs::path {"wonderswan/screenshots/Alpha Game (USA).png"}}));
 
     delete legacySystem;
     Settings::getInstance()->setString("MediaDirectory", "");

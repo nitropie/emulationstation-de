@@ -12,6 +12,7 @@
 #include "Log.h"
 #include "Settings.h"
 #include "SystemData.h"
+#include "profiles/ProfileMode.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/StringUtil.h"
 
@@ -37,6 +38,15 @@ void MiximageGenerator::startThread(std::promise<bool>* miximagePromise)
 #endif
 
     mMiximagePromise = miximagePromise;
+
+    // Miximages are written below the shared media directory. Refuse at the generator itself so
+    // a lower-level caller cannot create, remove or overwrite media in a profile session.
+    if (ProfileMode::isMode()) {
+        LOG(LogWarning) << "MiximageGenerator: refusing to write shared media in profile mode";
+        mResultMessage = _("Scraping is disabled in profile mode");
+        mMiximagePromise->set_value(true);
+        return;
+    }
 
     LOG(LogDebug) << "MiximageGenerator::MiximageGenerator(): Creating miximage for \""
                   << mGame->getFileName() << "\"";
@@ -899,6 +909,11 @@ void MiximageGenerator::sampleFrameColor(CImg<unsigned char>& screenshotImage,
 
 std::string MiximageGenerator::getSavePath() const
 {
+    if (ProfileMode::isMode()) {
+        LOG(LogWarning) << "MiximageGenerator::getSavePath(): refusing in profile mode";
+        return "";
+    }
+
     const std::string name {Utils::FileSystem::getStem(mGame->getPath())};
     std::string subFolders;
 

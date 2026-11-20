@@ -206,8 +206,10 @@ MDResolveHandle::MDResolveHandle(const ScraperSearchResult& result,
     // lower-level caller cannot create directories, remove existing media or write new files in
     // a profile session.
     if (ProfileMode::isMode()) {
+        // A refusal is not a successful asset resolution. Reporting DONE would let a caller
+        // continue into miximage generation and other shared-media writes.
         LOG(LogWarning) << "MDResolveHandle: refusing to write shared media in profile mode";
-        setStatus(ASYNC_DONE);
+        setError(_("Scraping is disabled in profile mode"), false, true);
         return;
     }
 

@@ -989,7 +989,7 @@ void GuiScraperSearch::update(int deltaTime)
         }
         else if (mMDResolveHandle->status() == ASYNC_ERROR) {
             onSearchError(mMDResolveHandle->getStatusString(), mMDResolveHandle->getRetry(),
-                          (mSearchHandle != nullptr ? mSearchHandle->getFatalError() : false));
+                          mMDResolveHandle->getFatalError());
             mMDResolveHandle.reset();
         }
     }

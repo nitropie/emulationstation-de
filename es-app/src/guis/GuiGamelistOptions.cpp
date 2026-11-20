@@ -26,6 +26,7 @@
 #include "SystemData.h"
 #include "UIModeController.h"
 #include "guis/GuiGamelistFilter.h"
+#include "profiles/ProfileMode.h"
 #include "scrapers/Scraper.h"
 #include "utils/LocalizationUtil.h"
 #include "views/ViewController.h"
@@ -415,6 +416,11 @@ void GuiGamelistOptions::openMetaDataEd()
     std::function<void()> deleteGameBtnFunc;
 
     clearGameBtnFunc = [this, file] {
+        if (ProfileMode::isMode()) {
+            LOG(LogWarning)
+                << "GuiGamelistOptions: refusing to clear a game in profile mode";
+            return;
+        }
 #if defined(_WIN64)
         if (file->getType() == FOLDER) {
             LOG(LogInfo) << "Deleting media files and gamelist.xml entry for the folder \""
@@ -487,6 +493,11 @@ void GuiGamelistOptions::openMetaDataEd()
     };
 
     deleteGameBtnFunc = [this, file] {
+        if (ProfileMode::isMode()) {
+            LOG(LogWarning)
+                << "GuiGamelistOptions: refusing to delete a game in profile mode";
+            return;
+        }
 #if defined(_WIN64)
         LOG(LogInfo) << "Deleting game file \""
                      << Utils::String::replace(file->getFullPath(), "/", "\\")

@@ -17,6 +17,10 @@ key down up
 key return down
 key return up
 wait-text "TIMES PLAYED" 300
+# Legacy mode keeps the shared fields in the editor.
+assert-text "DESCRIPTION"
+assert-text "SORTNAME"
+capture legacy-editor
 key down down
 key down up
 key down down

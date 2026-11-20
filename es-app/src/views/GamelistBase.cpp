@@ -17,6 +17,7 @@
 #include "FileFilterIndex.h"
 #include "UIModeController.h"
 #include "guis/GuiGamelistOptions.h"
+#include "profiles/ProfileMode.h"
 #include "utils/LocalizationUtil.h"
 #include "views/ViewController.h"
 
@@ -602,6 +603,14 @@ void GamelistBase::addPlaceholder(FileData* firstEntry)
 
 void GamelistBase::remove(FileData* game, bool deleteFile)
 {
+    // Deleting library files is a shared mutation. Removing a collection entry (deleteFile false)
+    // stays personal and is still allowed.
+    if (ProfileMode::isMode() && deleteFile) {
+        LOG(LogWarning) << "GamelistBase::remove(): refusing to delete \"" << game->getPath()
+                        << "\" in profile mode";
+        return;
+    }
+
     // Optionally delete the game file on the filesystem.
     if (deleteFile)
         Utils::FileSystem::removeFile(game->getPath());
@@ -643,6 +652,12 @@ void GamelistBase::remove(FileData* game, bool deleteFile)
 
 void GamelistBase::removeMedia(FileData* game)
 {
+    if (ProfileMode::isMode()) {
+        LOG(LogWarning) << "GamelistBase::removeMedia(): refusing to clear media for \""
+                        << game->getPath() << "\" in profile mode";
+        return;
+    }
+
     std::string systemMediaDir {FileData::getMediaDirectory() + game->getSystem()->getName()};
     std::string mediaType;
     std::string path;

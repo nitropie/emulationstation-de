@@ -49,7 +49,6 @@ GuiMetaDataEd::GuiMetaDataEd(MetaDataList* md,
     , mGrid {glm::ivec2 {2, 6}}
     , mScraperParams {scraperParams}
     , mControllerBadges {BadgeComponent::getGameControllers()}
-    , mMetaDataDecl {mdd}
     , mMetaData {md}
     , mSavedCallback {saveCallback}
     , mClearGameFunc {clearGameFunc}
@@ -137,6 +136,11 @@ GuiMetaDataEd::GuiMetaDataEd(MetaDataList* md,
     for (auto it = mdd.cbegin(); it != mdd.cend(); ++it) {
         std::string currentKey {it->key};
 
+        // A normal profile session edits personal state only. Shared library fields are changed
+        // by offline maintenance, never by this editor.
+        if (ProfileMode::isMode() && !isPersonalMetadata(*it))
+            continue;
+
         // Only display the custom collections sortname entry if we're editing the game
         // from within a custom collection.
         if (currentKey == "collectionsortname" && !mIsCustomCollection)
@@ -163,6 +167,7 @@ GuiMetaDataEd::GuiMetaDataEd(MetaDataList* md,
             ed->setSize(0.0f, ed->getFont()->getHeight());
             ed->setValue(mMetaData->get(it->key));
             mEditors.push_back(ed);
+            mShownDecls.push_back(*it);
             continue;
         }
 
@@ -780,6 +785,7 @@ GuiMetaDataEd::GuiMetaDataEd(MetaDataList* md,
         }
 
         mEditors.push_back(ed);
+        mShownDecls.push_back(*it);
     }
 
     bool symlinkedDirectory {false};
@@ -791,7 +797,8 @@ GuiMetaDataEd::GuiMetaDataEd(MetaDataList* md,
 
     std::vector<std::shared_ptr<ButtonComponent>> buttons;
 
-    if (!scraperParams.system->hasPlatformId(PlatformIds::PLATFORM_IGNORE))
+    if (!ProfileMode::isMode() &&
+        !scraperParams.system->hasPlatformId(PlatformIds::PLATFORM_IGNORE))
         buttons.push_back(std::make_shared<ButtonComponent>(
             _("SCRAPE"), _("scrape"), std::bind(&GuiMetaDataEd::fetch, this)));
 
@@ -801,79 +808,81 @@ GuiMetaDataEd::GuiMetaDataEd(MetaDataList* md,
     }));
     buttons.push_back(
         std::make_shared<ButtonComponent>(_("CANCEL"), _("cancel changes"), [&] { delete this; }));
-    if (scraperParams.game->getType() == FOLDER && !symlinkedDirectory) {
-        if (mClearGameFunc) {
-            auto clearSelf = [&] {
-                mClearGameFunc();
-                delete this;
-            };
-            auto clearSelfBtnFunc = [this, clearSelf] {
-                mWindow->pushGui(
-                    new GuiMsgBox(_("THIS WILL DELETE ANY MEDIA FILES AND "
-                                    "THE GAMELIST.XML ENTRY FOR THIS FOLDER, "
-                                    "BUT NEITHER THE DIRECTORY ITSELF OR ANY "
-                                    "CONTENT INSIDE IT WILL BE REMOVED\nARE YOU SURE?"),
-                                  _("YES"), clearSelf, _("NO"), nullptr, "", nullptr, "", nullptr,
-                                  nullptr, false, true,
-                                  (mRenderer->getIsVerticalOrientation() ?
-                                       0.70f :
-                                       0.46f * (1.778f / mRenderer->getScreenAspectRatio()))));
-            };
-            buttons.push_back(
-                std::make_shared<ButtonComponent>(_("CLEAR"), _("clear folder"), clearSelfBtnFunc));
+    // A normal profile session has no shared delete or media-clear action.
+    if (!ProfileMode::isMode()) {
+        if (scraperParams.game->getType() == FOLDER && !symlinkedDirectory) {
+            if (mClearGameFunc) {
+                auto clearSelf = [&] {
+                    mClearGameFunc();
+                    delete this;
+                };
+                auto clearSelfBtnFunc = [this, clearSelf] {
+                    mWindow->pushGui(
+                        new GuiMsgBox(_("THIS WILL DELETE ANY MEDIA FILES AND "
+                                        "THE GAMELIST.XML ENTRY FOR THIS FOLDER, "
+                                        "BUT NEITHER THE DIRECTORY ITSELF OR ANY "
+                                        "CONTENT INSIDE IT WILL BE REMOVED\nARE YOU SURE?"),
+                                      _("YES"), clearSelf, _("NO"), nullptr, "", nullptr, "", nullptr,
+                                      nullptr, false, true,
+                                      (mRenderer->getIsVerticalOrientation() ?
+                                           0.70f :
+                                           0.46f * (1.778f / mRenderer->getScreenAspectRatio()))));
+                };
+                buttons.push_back(std::make_shared<ButtonComponent>(
+                    _("CLEAR"), _("clear folder"), clearSelfBtnFunc));
+            }
         }
-    }
-    else {
-        if (mClearGameFunc) {
-            auto clearSelf = [&] {
-                mClearGameFunc();
-                delete this;
-            };
-            auto clearSelfBtnFunc = [this, clearSelf] {
-                mWindow->pushGui(
-                    new GuiMsgBox(_("THIS WILL DELETE ANY MEDIA FILES "
-                                    "AND THE GAMELIST.XML ENTRY FOR "
-                                    "THIS GAME, BUT THE GAME FILE "
-                                    "ITSELF WILL NOT BE REMOVED\nARE YOU SURE?"),
-                                  _("YES"), clearSelf, _("NO"), nullptr, "", nullptr, "", nullptr,
-                                  nullptr, false, true,
-                                  (mRenderer->getIsVerticalOrientation() ?
-                                       0.70f :
-                                       0.46f * (1.778f / mRenderer->getScreenAspectRatio()))));
-            };
-            buttons.push_back(
-                std::make_shared<ButtonComponent>(_("CLEAR"), _("clear file"), clearSelfBtnFunc));
-        }
+        else {
+            if (mClearGameFunc) {
+                auto clearSelf = [&] {
+                    mClearGameFunc();
+                    delete this;
+                };
+                auto clearSelfBtnFunc = [this, clearSelf] {
+                    mWindow->pushGui(
+                        new GuiMsgBox(_("THIS WILL DELETE ANY MEDIA FILES "
+                                        "AND THE GAMELIST.XML ENTRY FOR "
+                                        "THIS GAME, BUT THE GAME FILE "
+                                        "ITSELF WILL NOT BE REMOVED\nARE YOU SURE?"),
+                                      _("YES"), clearSelf, _("NO"), nullptr, "", nullptr, "", nullptr,
+                                      nullptr, false, true,
+                                      (mRenderer->getIsVerticalOrientation() ?
+                                           0.70f :
+                                           0.46f * (1.778f / mRenderer->getScreenAspectRatio()))));
+                };
+                buttons.push_back(std::make_shared<ButtonComponent>(
+                    _("CLEAR"), _("clear file"), clearSelfBtnFunc));
+            }
 
-        // For the special case where a directory has a supported file extension and is therefore
-        // interpreted as a file, don't add the delete button. If it's however a symlink then add
-        // the delete button as we should be able to remove such files.
+            // For the special case where a directory has a supported file extension and is
+            // therefore interpreted as a file, don't add the delete button. If it is however a
+            // symlink then add the delete button as we should be able to remove such files.
 #if defined(__ANDROID__)
-        if (mDeleteGameFunc && !Utils::FileSystem::isDirectory(scraperParams.game->getPath())) {
+            if (mDeleteGameFunc && !Utils::FileSystem::isDirectory(scraperParams.game->getPath())) {
 #else
-        if (mDeleteGameFunc && (Utils::FileSystem::isSymlink(scraperParams.game->getPath()) ||
-                                !Utils::FileSystem::isDirectory(scraperParams.game->getPath()))) {
+            if (mDeleteGameFunc && (Utils::FileSystem::isSymlink(scraperParams.game->getPath()) ||
+                                    !Utils::FileSystem::isDirectory(scraperParams.game->getPath()))) {
 #endif
-            auto deleteFilesAndSelf = [&] {
-                mDeleteGameFunc();
-                delete this;
-            };
-            auto deleteGameBtnFunc = [this, deleteFilesAndSelf] {
-                mWindow->pushGui(
-                    new GuiMsgBox(_("THIS WILL DELETE THE GAME "
-                                    "FILE, ANY MEDIA FILES AND "
-                                    "THE GAMELIST.XML ENTRY\nARE YOU SURE?"),
-                                  _("YES"), deleteFilesAndSelf, _("NO"), nullptr, "", nullptr, "",
-                                  nullptr, nullptr, false, true,
-                                  (mRenderer->getIsVerticalOrientation() ?
-                                       0.70f :
-                                       0.46f * (1.778f / mRenderer->getScreenAspectRatio()))));
-            };
-            buttons.push_back(std::make_shared<ButtonComponent>(_("DELETE"), _("delete game"),
-                                                                deleteGameBtnFunc));
+                auto deleteFilesAndSelf = [&] {
+                    mDeleteGameFunc();
+                    delete this;
+                };
+                auto deleteGameBtnFunc = [this, deleteFilesAndSelf] {
+                    mWindow->pushGui(
+                        new GuiMsgBox(_("THIS WILL DELETE THE GAME "
+                                        "FILE, ANY MEDIA FILES AND "
+                                        "THE GAMELIST.XML ENTRY\nARE YOU SURE?"),
+                                      _("YES"), deleteFilesAndSelf, _("NO"), nullptr, "", nullptr, "",
+                                      nullptr, nullptr, false, true,
+                                      (mRenderer->getIsVerticalOrientation() ?
+                                           0.70f :
+                                           0.46f * (1.778f / mRenderer->getScreenAspectRatio()))));
+                };
+                buttons.push_back(std::make_shared<ButtonComponent>(_("DELETE"), _("delete game"),
+                                                                    deleteGameBtnFunc));
+            }
         }
     }
-
     mButtons = MenuComponent::makeButtonGrid(buttons);
     mGrid.setEntry(mButtons, glm::ivec2 {0, 5}, true, false, glm::ivec2 {2, 1});
 
@@ -923,24 +932,16 @@ void GuiMetaDataEd::save()
     bool showHiddenGames {Settings::getInstance()->getBool("ShowHiddenGames")};
     bool hideGameWhileHidden {false};
     bool setGameAsCounted {false};
-    int offset {0};
 
     for (unsigned int i {0}; i < mEditors.size(); ++i) {
-        // The offset is needed to make the editor and metadata fields match up if we're
-        // skipping the custom collections sortname field (which we do if not editing the
-        // game from within a custom collection gamelist), or if there's no screen entry
-        // for launching games on the other screen.
-        if (mMetaDataDecl.size() > i + offset) {
-            if (mMetaDataDecl.at(i + offset).key == "collectionsortname" && !mIsCustomCollection)
-                offset += 1;
-            else if (mMetaDataDecl.at(i + offset).key == "screen" && !mHasScreenEntry)
-                offset += 1;
-        }
+        const MetaDataDecl& decl {mShownDecls.at(i)};
 
-        if (mMetaDataDecl.at(i + offset).isStatistic)
+        // The editor shows only personal fields in profile mode. Keep the guard here as well so
+        // a shared field can never be written through this path.
+        if (ProfileMode::isMode() && !isPersonalMetadata(decl))
             continue;
 
-        const std::string& key {mMetaDataDecl.at(i + offset).key};
+        const std::string& key {decl.key};
 
         if (key == "altemulator" && mInvalidEmulatorEntry == true)
             continue;
@@ -1067,6 +1068,11 @@ void GuiMetaDataEd::save()
 
 void GuiMetaDataEd::fetch()
 {
+    if (ProfileMode::isMode()) {
+        LOG(LogWarning) << "GuiMetaDataEd::fetch(): scraping is disabled in profile mode";
+        return;
+    }
+
     GuiScraperSingle* scr {new GuiScraperSingle(
         mScraperParams, std::bind(&GuiMetaDataEd::fetchDone, this, std::placeholders::_1),
         mSavedMediaAndAborted)};
@@ -1075,24 +1081,21 @@ void GuiMetaDataEd::fetch()
 
 void GuiMetaDataEd::fetchDone(const ScraperSearchResult& result)
 {
+    if (ProfileMode::isMode()) {
+        LOG(LogWarning) << "GuiMetaDataEd::fetchDone(): scraping is disabled in profile mode";
+        return;
+    }
+
     // Clone the mMetaData object.
     MetaDataList* metadata {new MetaDataList(*mMetaData)};
 
     mMediaFilesUpdated = result.savedNewMedia;
-    int offset {0};
 
     // Check if any values were manually changed before starting the scraping.
     // If so, it's these values we should compare against when scraping, not
     // the values previously saved for the game.
     for (unsigned int i {0}; i < mEditors.size(); ++i) {
-        if (mMetaDataDecl.size() > i + offset) {
-            if (mMetaDataDecl.at(i + offset).key == "collectionsortname" && !mIsCustomCollection)
-                offset += 1;
-            else if (mMetaDataDecl.at(i + offset).key == "screen" && !mHasScreenEntry)
-                offset += 1;
-        }
-
-        const std::string& key {mMetaDataDecl.at(i + offset).key};
+        const std::string& key {mShownDecls.at(i).key};
         const std::string value {key == "controller" ?
                                      BadgeComponent::getShortName(mEditors[i]->getValue()) :
                                      mEditors[i]->getValue()};
@@ -1103,18 +1106,10 @@ void GuiMetaDataEd::fetchDone(const ScraperSearchResult& result)
 
     GuiScraperSearch::saveMetadata(result, *metadata, mScraperParams.game);
 
-    offset = 0;
 
     // Update the list with the scraped metadata values.
     for (unsigned int i {0}; i < mEditors.size(); ++i) {
-        if (mMetaDataDecl.size() > i + offset) {
-            if (mMetaDataDecl.at(i + offset).key == "collectionsortname" && !mIsCustomCollection)
-                offset += 1;
-            else if (mMetaDataDecl.at(i + offset).key == "screen" && !mHasScreenEntry)
-                offset += 1;
-        }
-
-        const std::string& key {mMetaDataDecl.at(i + offset).key};
+        const std::string& key {mShownDecls.at(i).key};
 
         if (key == "controller" && metadata->get(key) != "") {
             std::string displayName = BadgeComponent::getDisplayName(metadata->get(key));
@@ -1129,7 +1124,7 @@ void GuiMetaDataEd::fetchDone(const ScraperSearchResult& result)
                 mEditors.at(i)->setColor(mMenuColorRed);
         }
         // Save all the keys that should be scraped.
-        if (mMetaDataDecl.at(i + offset).shouldScrape)
+        if (mShownDecls.at(i).shouldScrape)
             mEditors.at(i)->setValue(metadata->get(key));
     }
 
@@ -1140,17 +1135,9 @@ void GuiMetaDataEd::close()
 {
     // Find out if the user made any changes.
     bool metadataUpdated {false};
-    int offset {0};
 
     for (unsigned int i {0}; i < mEditors.size(); ++i) {
-        if (mMetaDataDecl.size() > i + offset) {
-            if (mMetaDataDecl.at(i + offset).key == "collectionsortname" && !mIsCustomCollection)
-                offset += 1;
-            else if (mMetaDataDecl.at(i + offset).key == "screen" && !mHasScreenEntry)
-                offset += 1;
-        }
-
-        const std::string& key {mMetaDataDecl.at(i + offset).key};
+        const std::string& key {mShownDecls.at(i).key};
 
         if (key == "altemulator" && mInvalidEmulatorEntry)
             continue;

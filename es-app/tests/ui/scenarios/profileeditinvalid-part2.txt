@@ -16,32 +16,12 @@ key down up
 key return down
 key return up
 wait-text "TIMES PLAYED" 300
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
+assert-text "FAVORITE"
+assert-absent "DESCRIPTION"
+assert-absent "SCRAPE"
+assert-absent "DELETE"
+assert-absent "CLEAR"
+capture profile-editor-reloaded
 key down down
 key down up
 key down down

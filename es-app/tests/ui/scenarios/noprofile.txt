@@ -3,5 +3,76 @@ key escape down
 key escape up
 wait-text "MAIN MENU" 120
 assert-absent "PROFILE"
+assert-text "SCRAPER"
 capture menu
+
+# UI SETTINGS is the entry after SCRAPER.
+key down down
+key down up
+key return down
+key return up
+wait-text "THEME" 300
+assert-text "THEME"
+assert-text "THEME DOWNLOADER"
+capture legacy-ui-settings
+key backspace down
+key backspace up
+wait-frames 20
+key backspace down
+key backspace up
+wait-frames 20
+key escape down
+key escape up
+wait-text "MAIN MENU" 120
+
+# OTHER SETTINGS is six entries from the top with the Bluetooth entry present.
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key return down
+key return up
+wait-text "ALTERNATIVE EMULATORS" 300
+assert-text "GAME MEDIA DIRECTORY"
+capture legacy-other-settings
+key backspace down
+key backspace up
+wait-frames 20
+key backspace down
+key backspace up
+wait-frames 20
+key escape down
+key escape up
+wait-text "MAIN MENU" 120
+
+# UTILITIES is seven entries from the top with the Bluetooth entry present.
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key return down
+key return up
+wait-text "RESCAN ROM DIRECTORY" 300
+assert-text "GAME IMPORTER"
+assert-text "ORPHANED DATA CLEANUP"
+assert-text "CREATE/UPDATE SYSTEM DIRECTORIES"
+capture legacy-utilities
 quit

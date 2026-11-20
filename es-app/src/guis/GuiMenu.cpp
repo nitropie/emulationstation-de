@@ -158,7 +158,7 @@ GuiMenu::GuiMenu()
         addEntry(_("PROFILE"), mMenuColorPrimary, true,
                  [this] { mWindow->pushGui(new GuiProfile()); });
 
-    if (isFullUI)
+    if (isFullUI && !ProfileMode::isMode())
         addEntry(_("SCRAPER"), mMenuColorPrimary, true, [this] { openScraperOptions(); });
 
     if (isFullUI)
@@ -223,6 +223,11 @@ GuiMenu::~GuiMenu()
 
 void GuiMenu::openScraperOptions()
 {
+    if (ProfileMode::isMode()) {
+        LOG(LogWarning) << "GuiMenu::openScraperOptions(): scraping is disabled in profile mode";
+        return;
+    }
+
     // Open the scraper menu.
     mWindow->pushGui(new GuiScraperMenu(_("SCRAPER")));
 }
@@ -250,7 +255,8 @@ void GuiMenu::openUIOptions()
 
     themeDownloaderInputRow.makeAcceptInputHandler(
         std::bind(&GuiMenu::openThemeDownloader, this, s));
-    s->addRow(themeDownloaderInputRow);
+    if (!ProfileMode::isMode())
+        s->addRow(themeDownloaderInputRow);
 
     // Theme.
     if (!themes.empty()) {
@@ -1833,6 +1839,11 @@ void GuiMenu::openOtherOptions()
     std::string initValueMediaDir {Settings::getInstance()->getString("MediaDirectory")};
     bool multiLineMediaDir {false};
     auto updateValMediaDir = [this](const std::string& newVal) {
+        if (ProfileMode::isMode()) {
+            LOG(LogWarning)
+                << "GuiMenu: refusing to change the shared media directory in profile mode";
+            return;
+        }
         Settings::getInstance()->setString("MediaDirectory", newVal);
         Settings::getInstance()->saveFile();
         ViewController::getInstance()->reloadAll();
@@ -1855,7 +1866,8 @@ void GuiMenu::openOtherOptions()
                 mediaDirectoryStaticText, defaultDirectoryText, _("load default directory")));
         }
     });
-    s->addRow(rowMediaDir);
+    if (!ProfileMode::isMode())
+        s->addRow(rowMediaDir);
 #endif
 
     // Maximum play time tracking.
@@ -2502,7 +2514,8 @@ void GuiMenu::openUtilities()
     row.makeAcceptInputHandler(std::bind([this, gameImporterUpdateFunc] {
         mWindow->pushGui(new GuiGameImporter(_("GAME IMPORTER"), gameImporterUpdateFunc));
     }));
-    s->addRow(row);
+    if (!ProfileMode::isMode())
+        s->addRow(row);
 
     row.elements.clear();
     row.addElement(std::make_shared<TextComponent>(_("ORPHANED DATA CLEANUP"),
@@ -2511,7 +2524,8 @@ void GuiMenu::openUtilities()
     row.addElement(mMenu.makeArrow(), false);
     row.makeAcceptInputHandler(std::bind(
         [this] { mWindow->pushGui(new GuiOrphanedDataCleanup([&]() { close(true); })); }));
-    s->addRow(row);
+    if (!ProfileMode::isMode())
+        s->addRow(row);
 
     row.elements.clear();
     row.addElement(std::make_shared<TextComponent>(_("CREATE/UPDATE SYSTEM DIRECTORIES"),
@@ -2566,7 +2580,8 @@ void GuiMenu::openUtilities()
                  0.52f * (1.778f / mRenderer->getScreenAspectRatio()))));
     });
 
-    s->addRow(row);
+    if (!ProfileMode::isMode())
+        s->addRow(row);
 
     row.elements.clear();
     row.addElement(std::make_shared<TextComponent>(_("RESCAN ROM DIRECTORY"),
@@ -2735,6 +2750,12 @@ void GuiMenu::addVersionInfo()
 
 void GuiMenu::openThemeDownloader(GuiSettings* settings)
 {
+    if (ProfileMode::isMode()) {
+        LOG(LogWarning)
+            << "GuiMenu::openThemeDownloader(): downloading themes is disabled in profile mode";
+        return;
+    }
+
     auto updateFunc = [&, settings]() {
         LOG(LogDebug) << "GuiMenu::openThemeDownloader(): Themes were updated, reloading menu";
         mThemeDownloaderReloadCounter = 1;

@@ -65,7 +65,9 @@ private:
     std::vector<std::shared_ptr<GuiComponent>> mEditors;
     std::vector<std::pair<std::string, std::string>> mScreenEntries;
 
-    std::vector<MetaDataDecl> mMetaDataDecl;
+    // The declarations actually shown, in the same order as mEditors. Profile mode filters this
+    // to personal fields; legacy mode keeps the full editor list.
+    std::vector<MetaDataDecl> mShownDecls;
     MetaDataList* mMetaData;
     std::function<void()> mSavedCallback;
     std::function<void()> mClearGameFunc;

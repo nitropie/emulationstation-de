@@ -1,6 +1,16 @@
 # First launch: the metadata editor refuses an unencodable personal value and keeps the
 # previous one, then a valid value is entered and saved.
 wait-text "Super Nintendo Entertainment System" 600
+# Normal profile sessions hide shared-library maintenance.
+key escape down
+key escape up
+wait-text "MAIN MENU" 120
+assert-text "PROFILE"
+assert-absent "SCRAPER"
+capture profile-menu
+key escape down
+key escape up
+wait-frames 30
 key return down
 key return up
 wait-view gamelist 300
@@ -17,32 +27,21 @@ key down up
 key return down
 key return up
 wait-text "TIMES PLAYED" 300
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
-key down down
-key down up
+# The editor shows personal fields only and no shared scrape/delete/clear actions.
+assert-text "FAVORITE"
+assert-text "COMPLETED"
+assert-text "HIDDEN"
+assert-absent "DESCRIPTION"
+assert-absent "SORTNAME"
+assert-absent "RELEASE DATE"
+assert-absent "DEVELOPER"
+assert-absent "PUBLISHER"
+assert-absent "GENRE"
+assert-absent "RATING"
+assert-absent "SCRAPE"
+assert-absent "DELETE"
+assert-absent "CLEAR"
+capture profile-editor
 key down down
 key down up
 key down down

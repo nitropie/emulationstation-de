@@ -1,0 +1,9 @@
+{
+  "runs": 2,
+  "profile": {
+    "fixture": "profiled",
+    "id": "bbb35f7a-a579-4721-8510-2f777c27225a",
+    "metadata": "profile.json"
+  },
+  "launch": ["profilemaintenance.txt"]
+}

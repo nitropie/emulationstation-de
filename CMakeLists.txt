@@ -52,6 +52,7 @@ option(ASAN "Set to ON to build with AddressSanitizer" OFF)
 option(TSAN "Set to ON to build with ThreadSanitizer" OFF)
 option(UBSAN "Set to ON to build with UndefinedBehaviorSanitizer" OFF)
 option(BLUETOOTH_MANAGER "Set to ON to enable Bluetooth device management" OFF)
+option(WIFI_MANAGER "Set to ON to enable Wi-Fi network management" OFF)
 option(AUDIO_OUTPUT_MANAGER "Set to ON to enable audio output device management" OFF)
 option(BUILD_TESTS "Set to ON to build the test executables" OFF)
 
@@ -145,14 +146,14 @@ if(CMAKE_SYSTEM_NAME MATCHES Linux)
     find_package(Bluez REQUIRED)
 endif()
 
-# The Bluetooth and audio output backends are optional and only exist on Linux. Their libraries are
-# detected here, the compile definitions and the failures when a requested library is missing are
-# handled in the preprocessor directives section below. Nothing is linked here, the subsystems
-# themselves add their source files and libraries as they are introduced.
+# The Bluetooth, Wi-Fi and audio output backends are optional and only exist on Linux. Their
+# libraries are detected here, the compile definitions and the failures when a requested library is
+# missing are handled in the preprocessor directives section below. Nothing is linked here, the
+# subsystems themselves add their source files and libraries as they are introduced.
 if(CMAKE_SYSTEM_NAME MATCHES Linux AND NOT ANDROID)
     find_package(PkgConfig QUIET)
     if(PKG_CONFIG_FOUND)
-        if(BLUETOOTH_MANAGER)
+        if(BLUETOOTH_MANAGER OR WIFI_MANAGER)
             pkg_check_modules(LIBSYSTEMD libsystemd)
         endif()
         if(AUDIO_OUTPUT_MANAGER)
@@ -387,6 +388,21 @@ if(BLUETOOTH_MANAGER)
         message("-- Building with Bluetooth device management (BlueZ over sd-bus)")
     else()
         message(FATAL_ERROR "-- Bluetooth device management can only be used on Linux")
+    endif()
+endif()
+
+if(WIFI_MANAGER)
+    if(CMAKE_SYSTEM_NAME MATCHES Linux AND NOT ANDROID)
+        if(NOT PKG_CONFIG_FOUND)
+            message(FATAL_ERROR "-- Wi-Fi network management requires pkg-config")
+        endif()
+        if(NOT LIBSYSTEMD_FOUND)
+            message(FATAL_ERROR "-- Wi-Fi network management requires libsystemd, which was not found")
+        endif()
+        add_compile_definitions(WIFI_MANAGER_WPASUPPLICANT)
+        message("-- Building with Wi-Fi network management (wpa_supplicant over sd-bus)")
+    else()
+        message(FATAL_ERROR "-- Wi-Fi network management can only be used on Linux")
     endif()
 endif()
 

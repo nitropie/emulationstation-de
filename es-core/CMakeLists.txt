@@ -35,6 +35,11 @@ set(CORE_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/bluetooth/BluetoothMessageParser.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/bluetooth/BluetoothState.h
 
+    # Wi-Fi
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/wifi/WifiManager.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/wifi/WifiMessageParser.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/wifi/WifiState.h
+
     # Animations
     ${CMAKE_CURRENT_SOURCE_DIR}/src/animations/Animation.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/animations/AnimationController.h
@@ -133,6 +138,10 @@ set(CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/bluetooth/BluetoothManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/bluetooth/BluetoothState.cpp
 
+    # Wi-Fi
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/wifi/WifiManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/wifi/WifiState.cpp
+
     # Animations
     ${CMAKE_CURRENT_SOURCE_DIR}/src/animations/AnimationController.cpp
 
@@ -212,14 +221,23 @@ if(IOS)
 endif()
 
 #---------------------------------------------------------------------------------------------------
-# Bluetooth device management.
+# Bluetooth and Wi-Fi network management.
 #
-# The reducer is platform independent and is always compiled. The BlueZ backend is only compiled
-# when the build option enabled it, which configure only allows when libsystemd was found.
+# The interfaces and the reducers are platform independent and are always compiled. The BlueZ and
+# wpa_supplicant backends are only compiled when the build option enabled them, which configure only
+# allows when libsystemd was found. libsystemd is added once even when both are enabled.
 
 if(BLUETOOTH_MANAGER)
     set(CORE_SOURCES ${CORE_SOURCES}
                      ${CMAKE_CURRENT_SOURCE_DIR}/src/bluetooth/BluetoothManagerBlueZ.cpp)
+endif()
+
+if(WIFI_MANAGER)
+    set(CORE_SOURCES ${CORE_SOURCES}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/src/wifi/WifiMessageParser.cpp)
+endif()
+
+if(BLUETOOTH_MANAGER OR WIFI_MANAGER)
     list(APPEND COMMON_INCLUDE_DIRS ${LIBSYSTEMD_INCLUDE_DIRS})
     list(APPEND COMMON_LIBRARIES ${LIBSYSTEMD_LINK_LIBRARIES})
 endif()
@@ -266,6 +284,8 @@ if(BUILD_TESTS)
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/BluetoothManagerTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/BluetoothMessageParserTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/BluetoothStateTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/WifiMessageParserTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/WifiStateTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/StringUtilTests.cpp)
     target_include_directories(es-core-tests PRIVATE
                                ${CMAKE_CURRENT_SOURCE_DIR}/tests

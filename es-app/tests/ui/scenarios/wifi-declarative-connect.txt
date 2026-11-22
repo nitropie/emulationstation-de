@@ -1,0 +1,47 @@
+wait-text "Super Nintendo Entertainment System" 600
+key escape down
+key escape up
+wait-text "MAIN MENU" 200
+
+# SCRAPER, UI SETTINGS, SOUND SETTINGS, INPUT DEVICE SETTINGS, BLUETOOTH, WI-FI.
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller a down
+controller a up
+
+wait-text "POWER" 200
+wait-text "CAFE" 600
+wait-frames 30
+capture wifi-declarative-open
+
+# The saved row is the scan row plus one: POWER, summary, SCAN FOR NETWORKS, CAFE.
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller a down
+controller a up
+
+wait-text "WI-FI NETWORK" 200
+assert-text "CONNECT"
+capture wifi-declarative-actions
+
+# The header is the first row, so CONNECT needs one down before accepting.
+controller down down
+controller down up
+controller a down
+controller a up
+
+wait-text "CONNECTED TO Cafe" 900
+capture wifi-declarative-connected
+quit

@@ -1,0 +1,11 @@
+{
+  "runs": 2,
+  "fixture": "wifi",
+  "wifiBackend": "required",
+  "wifi": {
+    "mock": "wifi-switch-mock.json",
+    "config": "imperative.conf",
+    "configEmpty": true,
+    "configForbid": ["Cafe", "Home"]
+  }
+}

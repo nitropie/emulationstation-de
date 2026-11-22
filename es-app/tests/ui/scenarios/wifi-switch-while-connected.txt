@@ -1,0 +1,52 @@
+wait-text "Super Nintendo Entertainment System" 600
+key escape down
+key escape up
+wait-text "MAIN MENU" 200
+
+# SCRAPER, UI SETTINGS, SOUND SETTINGS, INPUT DEVICE SETTINGS, BLUETOOTH, WI-FI.
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller a down
+controller a up
+
+wait-text "CONNECTED TO Home" 900
+wait-text "CAFE" 600
+capture wifi-switch-before
+
+# POWER, summary, SCAN FOR NETWORKS, HOME (connected), CAFE.
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller a down
+controller a up
+
+wait-text "WI-FI NETWORK" 200
+assert-text "CONNECT"
+
+# The header is the first row, so CONNECT needs one down before accepting.
+controller down down
+controller down up
+controller a down
+controller a up
+
+# The fake keeps associating for three seconds, so the pending summary is stable.
+wait-text "CONNECTING TO Cafe" 500
+assert-text "CONNECTING"
+capture wifi-switching
+
+wait-text "CONNECTED TO Cafe" 30000
+capture wifi-switched
+quit

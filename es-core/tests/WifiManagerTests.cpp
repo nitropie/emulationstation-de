@@ -72,6 +72,7 @@ namespace
     constexpr const char* sCafeBssPath {"/fi/w1/wpa_supplicant1/Interfaces/1/BSSs/1"};
     constexpr const char* sHomeNetworkPath {"/fi/w1/wpa_supplicant1/Interfaces/1/Networks/0"};
     constexpr const char* sCafeNetworkPath {"/fi/w1/wpa_supplicant1/Interfaces/1/Networks/9"};
+    constexpr const char* sCafeDuplicatePath {"/fi/w1/wpa_supplicant1/Interfaces/1/Networks/8"};
     constexpr const char* sOpenCafeBssPath {"/fi/w1/wpa_supplicant1/Interfaces/1/BSSs/2"};
     constexpr const char* sCorrectPassphrase {"correct horse battery"};
     constexpr const char* sWrongPassphrase {"wrong password"};
@@ -295,8 +296,12 @@ TEST_CASE(wifiInterfaceDiscoverySkipsP2pDevices)
     if (fixture.manager == nullptr)
         return;
 
-    EXPECT(FakeWpaSupplicantServer::waitFor(
-        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+    // The interface becomes available before its BSS objects are fetched, so the wait has to
+    // include the network or the assertions race the first property reply.
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        return fixture.snapshot() != nullptr && fixture.snapshot()->available &&
+               containsNetwork(fixture.snapshot(), "Cafe");
+    }));
 
     const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
     EXPECT(snapshot->interfaceName == "wlan0");
@@ -419,19 +424,96 @@ TEST_CASE(wifiConnectWithPasswordSucceedsAndSaves)
     EXPECT(contains(config, sCorrectPassphrase));
 }
 
-TEST_CASE(wifiWrongPasswordRollsBack)
+TEST_CASE(wifiSavedNetworkSelectsWithoutMutation)
 {
     WifiFixture fixture;
     fixture.addInterfaces();
-    fixture.addCafe();
-    fixture.addHome();
+    // No expected passphrase here: selecting a saved block must not need one in the fake either.
+    fixture.server.addBss(sCafeBssPath, {"Cafe", -40, 2412, {"WPA-PSK"}});
+    fixture.addSavedCafe();
     EXPECT(fixture.start());
     if (fixture.manager == nullptr)
         return;
 
     EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
         return fixture.snapshot() != nullptr && fixture.snapshot()->available &&
-               containsNetwork(fixture.snapshot(), "Home");
+               hasSavedNetwork(fixture.snapshot(), "Cafe");
+    }));
+
+    // A saved or declarative network already has a Network object, so CONNECT only selects it.
+    fixture.manager->connect("Cafe");
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe";
+    }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.addNetwork == 0);
+    EXPECT(calls.removeNetwork == 0);
+    EXPECT(calls.saveConfig == 0);
+    EXPECT(calls.selectNetwork == 1);
+    if (calls.selectedPaths.size() == 1)
+        EXPECT(calls.selectedPaths.front() == sCafeNetworkPath);
+
+    // Selecting an existing block must never create or rewrite imperative.conf.
+    std::error_code error;
+    if (std::filesystem::exists(fixture.configPath)) {
+        EXPECT(std::filesystem::file_size(fixture.configPath, error) == 0);
+    }
+}
+
+TEST_CASE(wifiSwitchingWhileConnectedIgnoresStaleCompleted)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.server.addBss(sCafeBssPath, {"Cafe", -40, 2412, {"WPA-PSK"}});
+    fixture.addHome();
+    fixture.addSavedCafe();
+    fixture.server.setConnectedState(sHomeNetworkPath, "/");
+    fixture.server.setStaleCompletedOnDisconnect(true);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->available && snapshot->connected &&
+               snapshot->activeSsid == "Home";
+    }));
+
+    // The fake publishes the old completed state again after Disconnect, which used to complete
+    // the new attempt with the wrong network.
+    fixture.manager->connect("Cafe");
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe";
+    }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.disconnect >= 1);
+    EXPECT(calls.addNetwork == 0);
+    EXPECT(calls.saveConfig == 0);
+    EXPECT(calls.selectNetwork == 1);
+    if (calls.selectedPaths.size() == 1)
+        EXPECT(calls.selectedPaths.front() == sCafeNetworkPath);
+}
+
+TEST_CASE(wifiFailedPasswordKeepsExistingSavedBlock)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.addHome();
+    fixture.server.setNegativeDisconnectReasons(true);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        return fixture.snapshot() != nullptr && fixture.snapshot()->available &&
+               hasSavedNetwork(fixture.snapshot(), "Home");
     }));
 
     fixture.manager->connectWithPassword("Cafe", sWrongPassphrase);
@@ -441,25 +523,26 @@ TEST_CASE(wifiWrongPasswordRollsBack)
         return snapshot != nullptr && !snapshot->lastError.empty();
     }));
 
-    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
-        return fixture.server.calls().removeNetwork >= 1 && fixture.server.calls().reconnect >= 1;
-    }));
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().removeNetwork >= 1; }));
 
     const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
     EXPECT(calls.addNetwork == 1);
     EXPECT(calls.selectNetwork == 1);
+    EXPECT(calls.reconnect == 0);
+    EXPECT(calls.saveConfig == 0);
 
-    // The block that AddNetwork created is removed again.
+    // Only the block this attempt created is removed.
     EXPECT(calls.removedPaths.size() == 1);
     if (calls.removedPaths.size() == 1)
         EXPECT(contains(calls.removedPaths.front(), "/Networks/"));
 
-    // The other saved network is re-enabled and nothing is persisted.
-    EXPECT(hasEnabledPath(calls, sHomeNetworkPath));
-    EXPECT(calls.saveConfig == 0);
-
+    // The pre-existing saved network is untouched and still saved; it is never re-enabled behind
+    // the user's back because it was never disabled.
+    EXPECT(!hasEnabledPath(calls, sHomeNetworkPath));
     const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
-    EXPECT(!snapshot->lastError.empty());
+    EXPECT(hasSavedNetwork(snapshot, "Home"));
+    EXPECT(snapshot->lastError == "The Wi-Fi password was not accepted");
     EXPECT(!contains(snapshot->lastError, sWrongPassphrase));
 
     std::error_code error;
@@ -467,6 +550,138 @@ TEST_CASE(wifiWrongPasswordRollsBack)
         const std::string config {readFile(fixture.configPath)};
         EXPECT(!contains(config, "Cafe"));
     }
+}
+
+TEST_CASE(wifiWrongPasswordOnSavedNetworkPreservesSavedBlock)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.addSavedCafe();
+    fixture.server.setNegativeDisconnectReasons(true);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        return fixture.snapshot() != nullptr && fixture.snapshot()->available &&
+               hasSavedNetwork(fixture.snapshot(), "Cafe");
+    }));
+
+    // ENTER PASSWORD on a saved network must use the typed credential, not silently reuse the
+    // existing block.
+    fixture.manager->connectWithPassword("Cafe", sWrongPassphrase);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->lastError == "The Wi-Fi password was not accepted";
+    }));
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().removeNetwork >= 1; }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.addNetwork == 1);
+    EXPECT(calls.selectNetwork == 1);
+    EXPECT(calls.removeNetwork == 1);
+    EXPECT(calls.saveConfig == 0);
+    EXPECT(calls.reconnect == 0);
+
+    // Only the newly created block is removed; the pre-existing saved block is untouched.
+    EXPECT(calls.removedPaths.size() == 1);
+    if (calls.removedPaths.size() == 1) {
+        EXPECT(contains(calls.removedPaths.front(), "/Networks/"));
+        EXPECT(calls.removedPaths.front() != sCafeNetworkPath);
+    }
+    EXPECT(hasSavedNetwork(fixture.snapshot(), "Cafe"));
+}
+
+TEST_CASE(wifiPasswordChangeReplacesDuplicatesAfterSuccess)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.server.addBss(sCafeBssPath, {"Cafe", -40, 2412, {"WPA-PSK"}});
+    fixture.server.setExpectedPassphrase("Cafe", sCorrectPassphrase);
+    fixture.addHome();
+    fixture.addSavedCafe();
+    fixture.server.addSavedNetwork(sCafeDuplicatePath, "Cafe", "WPA-PSK", true);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        return fixture.snapshot() != nullptr && fixture.snapshot()->available &&
+               hasSavedNetwork(fixture.snapshot(), "Cafe");
+    }));
+
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe";
+    }));
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().saveConfig >= 1; }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.addNetwork == 1);
+    EXPECT(calls.selectNetwork == 1);
+
+    // Both older Cafe blocks are removed only after the new block authenticated.
+    EXPECT(calls.removeNetwork == 2);
+    EXPECT(calls.removedPaths.size() == 2);
+    if (calls.removedPaths.size() == 2) {
+        EXPECT(std::find(calls.removedPaths.cbegin(), calls.removedPaths.cend(),
+                         sCafeNetworkPath) != calls.removedPaths.cend());
+        EXPECT(std::find(calls.removedPaths.cbegin(), calls.removedPaths.cend(),
+                         sCafeDuplicatePath) != calls.removedPaths.cend());
+    }
+
+    // The other saved network is re-enabled, and both the removals and the enable are complete
+    // before SaveConfig runs.
+    EXPECT(hasEnabledPath(calls, sHomeNetworkPath));
+    EXPECT(calls.removeCountAtSave == 2);
+    EXPECT(calls.enableCountAtSave == static_cast<int>(calls.enabledPaths.size()));
+    EXPECT(calls.saveConfig == 1);
+    EXPECT(hasSavedNetwork(fixture.snapshot(), "Cafe"));
+}
+
+TEST_CASE(wifiOrphanAddNetworkReplyIsRemoved)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.server.setHoldAddNetwork(true);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        return fixture.snapshot() != nullptr && fixture.snapshot()->available &&
+               containsNetwork(fixture.snapshot(), "Cafe");
+    }));
+
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().addNetwork == 1; }));
+
+    // Abort the attempt while the AddNetwork reply is still in flight.
+    fixture.manager->disconnect();
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().disconnect >= 1; }));
+
+    fixture.server.setHoldAddNetwork(false);
+    fixture.server.releaseHeldAddNetwork();
+
+    // The late reply must still remove the object it created, so no orphan block is left behind.
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().removeNetwork >= 1; }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.removedPaths.size() == 1);
+    if (calls.removedPaths.size() == 1)
+        EXPECT(contains(calls.removedPaths.front(), "/Networks/"));
+    EXPECT(calls.saveConfig == 0);
 }
 
 TEST_CASE(wifiInvalidPassphraseFailsBeforeDbus)

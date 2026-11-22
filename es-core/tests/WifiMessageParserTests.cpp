@@ -322,6 +322,193 @@ namespace
         return holder;
     }
 
+    void appendStringByteArrayProperty(
+        sd_bus_message* message,
+        const char* name,
+        const std::vector<std::pair<std::string, std::vector<std::uint8_t>>>& entries)
+    {
+        openProperty(message, name, "a{say}");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{say}");
+        for (const auto& entry : entries) {
+            sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "say");
+            sd_bus_message_append(message, "s", entry.first.c_str());
+            sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "y");
+            for (const std::uint8_t byte : entry.second)
+                sd_bus_message_append(message, "y", byte);
+            sd_bus_message_close_container(message);
+            sd_bus_message_close_container(message);
+        }
+        sd_bus_message_close_container(message);
+        closeProperty(message);
+    }
+
+    // The "Capabilities" a{sv} of the real Interface.GetAll reply: string arrays plus one int.
+    void appendCapabilitiesProperty(sd_bus_message* message)
+    {
+        openProperty(message, "Capabilities", "a{sv}");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
+
+        sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv");
+        sd_bus_message_append(message, "s", "auth_alg");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "as");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "s");
+        sd_bus_message_append(message, "s", "open");
+        sd_bus_message_append(message, "s", "shared");
+        sd_bus_message_close_container(message);
+        sd_bus_message_close_container(message);
+        sd_bus_message_close_container(message);
+
+        sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv");
+        sd_bus_message_append(message, "s", "MaxScanSSID");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "i");
+        sd_bus_message_append(message, "i", 9);
+        sd_bus_message_close_container(message);
+        sd_bus_message_close_container(message);
+
+        sd_bus_message_close_container(message);
+        closeProperty(message);
+    }
+
+    // The "SignalChange" a{sv}: two integers and a string.
+    void appendSignalChangeProperty(sd_bus_message* message)
+    {
+        openProperty(message, "SignalChange", "a{sv}");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
+
+        sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv");
+        sd_bus_message_append(message, "s", "Threshold");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "i");
+        sd_bus_message_append(message, "i", 5);
+        sd_bus_message_close_container(message);
+        sd_bus_message_close_container(message);
+
+        sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv");
+        sd_bus_message_append(message, "s", "Hysteresis");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "u");
+        sd_bus_message_append(message, "u", 10u);
+        sd_bus_message_close_container(message);
+        sd_bus_message_close_container(message);
+
+        sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv");
+        sd_bus_message_append(message, "s", "Note");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "s");
+        sd_bus_message_append(message, "s", "rssi");
+        sd_bus_message_close_container(message);
+        sd_bus_message_close_container(message);
+
+        sd_bus_message_close_container(message);
+        closeProperty(message);
+    }
+
+    // A Network.Properties dictionary with the 115 strings that wpa_config_get_all emits.
+    void appendNetworkProperties115(sd_bus_message* message)
+    {
+        openProperty(message, "Properties", "a{sv}");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
+        appendStringProperty(message, "ssid", "\"Home\"");
+        appendStringProperty(message, "key_mgmt", "WPA-PSK");
+        appendStringProperty(message, "disabled", "0");
+        for (int index {0}; index < 112; ++index) {
+            const std::string name {"prop" + std::to_string(index)};
+            appendStringProperty(message, name.c_str(), "value");
+        }
+        sd_bus_message_close_container(message);
+        closeProperty(message);
+    }
+
+    // The 186-property Interface.GetAll dictionary as wpa_supplicant 2.12 emits it: ordinary
+    // scalar properties plus Capabilities, Blobs, MACAddressRandomizationMask and SignalChange.
+    std::shared_ptr<sd_bus_message> buildRealInterfaceGetAllMessage(sd_bus* bus)
+    {
+        sd_bus_message* message {nullptr};
+        if (sd_bus_message_new_method_call(bus, &message, "fi.w1.wpa_supplicant1", interfacePath,
+                                           "org.freedesktop.DBus.Properties", "GetAll") < 0)
+            return nullptr;
+
+        std::shared_ptr<sd_bus_message> holder {message, sd_bus_message_unref};
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
+
+        appendStringProperty(message, "State", "completed");
+        appendStringProperty(message, "Ifname", "wlan0");
+        appendStringProperty(message, "Driver", "nl80211");
+        appendBooleanProperty(message, "Scanning", false);
+        appendObjectPathProperty(message, "CurrentBSS", bssPath);
+        appendObjectPathProperty(message, "CurrentNetwork",
+                                 "/fi/w1/wpa_supplicant1/Interfaces/1/Networks/1");
+        appendInt16Property(message, "DisconnectReason", -3);
+        appendCapabilitiesProperty(message);
+        appendStringByteArrayProperty(message, "Blobs", {{"blob-1", {0x00, 0x01, 0xff}}});
+        appendStringByteArrayProperty(message, "MACAddressRandomizationMask",
+                                      {{"wlan0", {0x02, 0x00, 0x00, 0x00, 0x00, 0x01}}});
+        appendSignalChangeProperty(message);
+
+        // The two object path lists.
+        openProperty(message, "Networks", "ao");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "o");
+        sd_bus_message_append(message, "o", "/fi/w1/wpa_supplicant1/Interfaces/1/Networks/0");
+        sd_bus_message_append(message, "o", "/fi/w1/wpa_supplicant1/Interfaces/1/Networks/1");
+        sd_bus_message_close_container(message);
+        closeProperty(message);
+
+        openProperty(message, "BSSs", "ao");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "o");
+        sd_bus_message_append(message, "o", bssPath);
+        sd_bus_message_close_container(message);
+        closeProperty(message);
+
+        // Fill up to the real 186 properties (13 named ones above plus these).
+        for (int index {0}; index < 173; ++index) {
+            const std::string name {"Filler" + std::to_string(index)};
+            appendStringProperty(message, name.c_str(), "value");
+        }
+
+        sd_bus_message_close_container(message);
+
+        if (!sealAndRewind(message))
+            return nullptr;
+
+        return holder;
+    }
+
+    std::shared_ptr<sd_bus_message> buildRealNetworkGetAllMessage(sd_bus* bus)
+    {
+        sd_bus_message* message {nullptr};
+        if (sd_bus_message_new_method_call(bus, &message, "fi.w1.wpa_supplicant1",
+                                           "/fi/w1/wpa_supplicant1/Interfaces/1/Networks/1",
+                                           "org.freedesktop.DBus.Properties", "GetAll") < 0)
+            return nullptr;
+
+        std::shared_ptr<sd_bus_message> holder {message, sd_bus_message_unref};
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
+        appendNetworkProperties115(message);
+        appendBooleanProperty(message, "Enabled", true);
+        sd_bus_message_close_container(message);
+
+        if (!sealAndRewind(message))
+            return nullptr;
+
+        return holder;
+    }
+
+    std::shared_ptr<sd_bus_message> buildRealNetworkAddedMessage(sd_bus* bus)
+    {
+        const std::shared_ptr<sd_bus_message> holder {newSignal(bus, "NetworkAdded")};
+        if (holder == nullptr)
+            return nullptr;
+
+        sd_bus_message* message {holder.get()};
+        sd_bus_message_append(message, "o", "/fi/w1/wpa_supplicant1/Interfaces/1/Networks/1");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
+        appendNetworkProperties115(message);
+        appendBooleanProperty(message, "Enabled", true);
+        sd_bus_message_close_container(message);
+
+        if (!sealAndRewind(message))
+            return nullptr;
+
+        return holder;
+    }
+
     // The top-level arguments of a PropertiesChanged signal. The standard
     // org.freedesktop.DBus.Properties.PropertiesChanged body is (sa{sv}as); wpa_supplicant's own
     // BSS and Network PropertiesChanged signal only carries (a{sv}).
@@ -756,6 +943,98 @@ TEST_CASE(bssGetAllWithLowercaseSuitesIsClassified)
     }
     EXPECT(WifiState::classifySecurity(bss.keyMgmt) == WifiSecurity::personal);
     EXPECT(WifiState::preferredKeyMgmt(bss.keyMgmt) == WifiKeyMgmt::wpaPsk);
+}
+
+TEST_CASE(realInterfaceGetAllIsParsedCompletely)
+{
+    sd_bus* bus {openTestBus()};
+    EXPECT(bus != nullptr);
+    if (bus == nullptr)
+        return;
+
+    const std::shared_ptr<sd_bus_message> message {buildRealInterfaceGetAllMessage(bus)};
+    sd_bus_unref(bus);
+
+    EXPECT(message != nullptr);
+    if (message == nullptr)
+        return;
+
+    WifiProperties properties;
+    EXPECT(WifiMessageParser::readProperties(message.get(), properties));
+
+    // The dictionary is not truncated by the properties that are skipped (the two a{say}
+    // dictionaries) or by the ones that are reduced (Capabilities, SignalChange). 186 real
+    // properties minus the two a{say} dictionaries leaves 184 stored values.
+    EXPECT(properties.size() == 184);
+    EXPECT(properties.find("State") != properties.end());
+    EXPECT(properties.find("Networks") != properties.end());
+    EXPECT(properties.find("BSSs") != properties.end());
+    EXPECT(properties.find("Capabilities") != properties.end());
+    EXPECT(properties.find("SignalChange") != properties.end());
+    EXPECT(properties.find("Blobs") == properties.end());
+    EXPECT(properties.find("MACAddressRandomizationMask") == properties.end());
+    EXPECT(properties.find("Filler172") != properties.end());
+
+    const auto networks {properties.find("Networks")};
+    EXPECT(networks != properties.end());
+    if (networks != properties.end()) {
+        const auto list {std::get_if<std::vector<std::string>>(&networks->second)};
+        EXPECT(list != nullptr && list->size() == 2);
+    }
+
+    WifiBss bss;
+    WifiMessageParser::applyBssProperties(properties, bss);
+}
+
+TEST_CASE(realNetworkGetAllIsParsed)
+{
+    sd_bus* bus {openTestBus()};
+    EXPECT(bus != nullptr);
+    if (bus == nullptr)
+        return;
+
+    const std::shared_ptr<sd_bus_message> message {buildRealNetworkGetAllMessage(bus)};
+    sd_bus_unref(bus);
+
+    EXPECT(message != nullptr);
+    if (message == nullptr)
+        return;
+
+    WifiProperties properties;
+    EXPECT(WifiMessageParser::readProperties(message.get(), properties));
+    EXPECT(properties.size() == 2);
+
+    WifiSavedNetwork network;
+    WifiMessageParser::applyNetworkProperties(properties, network);
+    EXPECT(network.ssid == "Home");
+    EXPECT(network.keyMgmt == "WPA-PSK");
+    EXPECT(network.enabled);
+}
+
+TEST_CASE(realNetworkAddedIsParsed)
+{
+    sd_bus* bus {openTestBus()};
+    EXPECT(bus != nullptr);
+    if (bus == nullptr)
+        return;
+
+    const std::shared_ptr<sd_bus_message> message {buildRealNetworkAddedMessage(bus)};
+    sd_bus_unref(bus);
+
+    EXPECT(message != nullptr);
+    if (message == nullptr)
+        return;
+
+    std::string path;
+    WifiProperties properties;
+    EXPECT(WifiMessageParser::readObjectAdded(message.get(), path, properties));
+    EXPECT(path == "/fi/w1/wpa_supplicant1/Interfaces/1/Networks/1");
+
+    WifiSavedNetwork network;
+    WifiMessageParser::applyNetworkProperties(properties, network);
+    EXPECT(network.ssid == "Home");
+    EXPECT(network.keyMgmt == "WPA-PSK");
+    EXPECT(network.enabled);
 }
 
 TEST_CASE(unknownVariantsDoNotBreakTheDictionary)

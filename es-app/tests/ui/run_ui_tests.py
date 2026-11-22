@@ -496,8 +496,10 @@ def main():
                     for required in wifi.get("configRequire", []):
                         if required not in config_text:
                             fail(f"the persisted Wi-Fi configuration does not contain {required!r}")
+                    if wifi.get("configEmpty") and config_text.strip():
+                        fail(f"{wifi.get('config', 'imperative.conf')} is not empty")
                     wifi_state["config"] = config_text
-                elif wifi.get("expectConfig"):
+                elif wifi.get("expectConfig") and not wifi.get("configEmpty"):
                     fail(f"{wifi.get('config', 'imperative.conf')} was not written")
 
             settings_state = {}

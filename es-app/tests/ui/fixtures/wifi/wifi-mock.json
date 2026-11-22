@@ -11,7 +11,14 @@
       "keyMgmt": ["WPA-PSK"]
     }
   ],
-  "networks": [],
+  "networks": [
+    {
+      "path": "/fi/w1/wpa_supplicant1/Interfaces/1/Networks/9",
+      "ssid": "Home",
+      "keyMgmt": "WPA-PSK",
+      "enabled": true
+    }
+  ],
   "passphrases": {
     "Cafe": "hunter22"
   }

@@ -51,6 +51,8 @@ public:
         int removeNetwork {0};
         int selectNetwork {0};
         int saveConfig {0};
+        int removeCountAtSave {0};
+        int enableCountAtSave {0};
         int disconnect {0};
         int reconnect {0};
         int propertySets {0};
@@ -81,6 +83,16 @@ public:
     void setConfigPath(const std::string& path);
     // A daemon that is already connected when the frontend starts. Call before start().
     void setConnectedState(const std::string& networkPath, const std::string& bssPath);
+    // Emit the disconnect reason as a negative value, as the real daemon does.
+    void setNegativeDisconnectReasons(const bool value);
+    // Emit a stale completed state for the old network after a Disconnect call.
+    void setStaleCompletedOnDisconnect(const bool value);
+    // Delay the AddNetwork reply until releaseHeldAddNetwork() is called.
+    void setHoldAddNetwork(const bool value);
+    void releaseHeldAddNetwork();
+    // Keep a selected network in the associating state for this many milliseconds before
+    // publishing completed, so the UI can show CONNECTING TO.
+    void setAssociationDelayMs(const int milliseconds);
 
     // Starts the service and acquires fi.w1.wpa_supplicant1 on the session bus.
     bool start();
@@ -211,6 +223,20 @@ private:
     std::int32_t mDisconnectReason {0};
     bool mScanning {false};
     int mNextNetwork {1};
+    bool mNegativeDisconnectReasons {false};
+    bool mStaleCompletedOnDisconnect {false};
+    bool mHoldAddNetwork {false};
+    int mAssociationDelayMs {0};
+    sd_event_source* mAssociationTimer {nullptr};
+    std::string mAssociationPath;
+    void completeSelection(const std::string& path);
+    static int onAssociationTimeout(sd_event_source* source, uint64_t, void* userdata);
+
+    struct HeldAddNetwork {
+        sd_bus_message* message {nullptr};
+        std::string path;
+    };
+    std::vector<HeldAddNetwork> mHeldAddNetwork;
 };
 
 #endif // WIFI_MANAGER_WPASUPPLICANT

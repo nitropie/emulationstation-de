@@ -129,6 +129,9 @@ int main(int argc, char** argv)
         }
     }
 
+    if (document.HasMember("associationDelayMs") && document["associationDelayMs"].IsInt())
+        server.setAssociationDelayMs(document["associationDelayMs"].GetInt());
+
     if (document.HasMember("connected") && document["connected"].IsObject()) {
         const auto& connected {document["connected"]};
         if (connected.HasMember("network") && connected.HasMember("bss")) {

@@ -62,18 +62,20 @@ namespace
     constexpr const char* sAuthFailureMessage {"The Wi-Fi password was not accepted"};
 
     constexpr std::uint64_t sConnectTimeoutUsec {25 * 1000 * 1000};
+    constexpr std::uint64_t sDisconnectTimeoutUsec {5 * 1000 * 1000};
     constexpr std::uint64_t sIpPollIntervalUsec {1000 * 1000};
     constexpr int sIpPollAttempts {15};
 
     bool isAuthenticationFailure(const std::int64_t reason)
     {
-        return reason == 2 || reason == 14 || reason == 15 || reason == 23;
+        const std::int64_t code {std::abs(reason)};
+        return code == 2 || code == 14 || code == 15 || code == 23;
     }
 
     bool isInProgressState(const std::string& state)
     {
-        return state == "authenticating" || state == "associating" || state == "4way_handshake" ||
-               state == "group_handshake";
+        return state == "authenticating" || state == "associating" || state == "associated" ||
+               state == "4way_handshake" || state == "group_handshake";
     }
 
     bool isDisconnectedState(const std::string& state)
@@ -324,12 +326,10 @@ namespace
             scan,
             addNetwork,
             selectNetwork,
-            removeNetworkForConnect,
+            disconnectOld,
+            finalize,
             removeNetworkForForget,
             saveConfigForForget,
-            enableNetwork,
-            saveConfig,
-            reconnect,
             disconnect,
             quiet
         };
@@ -705,7 +705,8 @@ namespace
 
         bool beginAttempt(const std::string& ssid,
                           std::string passphrase,
-                          const bool createdNetwork)
+                          const bool createdNetwork,
+                          const std::string& targetNetworkPath)
         {
             if (mAttempt.active)
                 return false;
@@ -713,18 +714,40 @@ namespace
                 return false;
 
             cancelConnectTimer();
+            mAttempt = Attempt {};
             mAttempt.active = true;
             mAttempt.serial = ++mAttemptSerial;
             mAttempt.ssid = ssid;
             mAttempt.passphrase = std::move(passphrase);
             mAttempt.createdNetwork = createdNetwork;
-            mAttempt.newNetworkPath.clear();
+            mAttempt.targetNetworkPath = targetNetworkPath;
 
             mState.setPending(ssid, WifiOp::connecting);
             mState.setLastError(std::string {});
             publish();
 
             LOG(LogInfo) << "Wi-Fi: starting a connection attempt for '" << ssid << "'";
+
+            // A connection that is up, or still being brought up, is torn down first so that the
+            // old network's completed state cannot be mistaken for the new target's success.
+            const bool switching {mInterfaceState == "completed" ||
+                                  isInProgressState(mInterfaceState) ||
+                                  (!mCurrentNetworkPath.empty() && mCurrentNetworkPath != "/")};
+
+            if (switching) {
+                mAttempt.phase = Attempt::Phase::disconnectingOld;
+                disconnectOldNetwork();
+                startPhaseTimer(sDisconnectTimeoutUsec);
+            }
+            else if (createdNetwork) {
+                mAttempt.phase = Attempt::Phase::adding;
+                addNetworkForAttempt();
+            }
+            else {
+                mAttempt.phase = Attempt::Phase::selecting;
+                selectNetwork(mAttempt.targetNetworkPath);
+            }
+
             return true;
         }
 
@@ -733,12 +756,11 @@ namespace
             if (!hasInterface())
                 return;
 
+            // Every Network object is a saved network, including the declarative blocks that
+            // nixos.conf loads with -I. Selecting one needs no AddNetwork and no password.
             const std::vector<std::string> paths {mState.savedNetworkPaths(ssid)};
             if (!paths.empty()) {
-                if (!beginAttempt(ssid, std::string {}, false))
-                    return;
-
-                selectNetwork(paths.front());
+                beginAttempt(ssid, std::string {}, false, paths.front());
                 return;
             }
 
@@ -760,11 +782,7 @@ namespace
                 return;
             }
 
-            if (!beginAttempt(ssid, std::string {}, true))
-                return;
-
-            mConnectRemovalQueue.clear();
-            addNetworkForAttempt();
+            beginAttempt(ssid, std::string {}, true, std::string {});
         }
 
         void performConnectWithPassword(const std::string& ssid, std::string& passphrase)
@@ -781,6 +799,9 @@ namespace
                 return;
             }
 
+            // ENTER PASSWORD is the explicit "use this credential" action, even when the SSID
+            // already has a Network object (a declarative block or an earlier save). The typed
+            // passphrase is always used, and nothing existing is removed before it authenticates.
             const bool open {target != nullptr && target->security == WifiSecurity::open};
             if (!open && !WifiState::validatePassphrase(passphrase)) {
                 mState.setLastError(WifiState::passphraseError());
@@ -789,38 +810,44 @@ namespace
                 return;
             }
 
-            if (!beginAttempt(ssid, passphrase, true))
-                return;
-
-            // A failed earlier attempt can have left a Network object for this SSID behind, and a
-            // new one with a new password must not race against it.
-            mConnectRemovalQueue = mState.savedNetworkPaths(ssid);
-            removeNextForConnect();
+            beginAttempt(ssid, passphrase, true, std::string {});
         }
 
-        void removeNextForConnect()
+        void disconnectOldNetwork()
         {
-            if (!mAttempt.active)
-                return;
-
-            if (mConnectRemovalQueue.empty()) {
-                addNetworkForAttempt();
-                return;
-            }
-
-            const std::string path {mConnectRemovalQueue.front()};
-            mConnectRemovalQueue.erase(mConnectRemovalQueue.begin());
-
             sd_bus_message* message {nullptr};
             if (sd_bus_message_new_method_call(mBus, &message, sService, mInterfacePath.c_str(),
-                                               sInterfaceInterface, "RemoveNetwork") < 0) {
-                removeNextForConnect();
+                                               sInterfaceInterface, "Disconnect") < 0) {
+                maybeAdvanceAfterDisconnect();
                 return;
             }
 
-            sd_bus_message_append(message, "o", path.c_str());
-            send(message, Step::removeNetworkForConnect, mEpoch, mAttempt.serial, path,
+            send(message, Step::disconnectOld, mEpoch, mAttempt.serial, mInterfacePath,
                  mAttempt.ssid);
+        }
+
+        void maybeAdvanceAfterDisconnect(const bool force = false)
+        {
+            if (!mAttempt.active || mAttempt.phase != Attempt::Phase::disconnectingOld)
+                return;
+
+            // The Disconnect reply has to be in, and the interface has to have left the
+            // completed/in-progress states; the phase timer is the fallback.
+            if (!force && !mAttempt.disconnectDone)
+                return;
+            if (!force && (mInterfaceState == "completed" || isInProgressState(mInterfaceState)))
+                return;
+
+            cancelConnectTimer();
+
+            if (mAttempt.createdNetwork) {
+                mAttempt.phase = Attempt::Phase::adding;
+                addNetworkForAttempt();
+            }
+            else {
+                mAttempt.phase = Attempt::Phase::selecting;
+                selectNetwork(mAttempt.targetNetworkPath);
+            }
         }
 
         // A passphrase is either 8..63 printable ASCII characters, sent as an unquoted string
@@ -925,6 +952,14 @@ namespace
             if (!hasInterface())
                 return;
 
+            if (mAttempt.active) {
+                const std::string ssid {mAttempt.ssid};
+                mAttempt = Attempt {};
+                ++mAttemptSerial;
+                cancelConnectTimer();
+                mState.clearPending(ssid);
+            }
+
             sd_bus_message* message {nullptr};
             if (sd_bus_message_new_method_call(mBus, &message, sService, mInterfacePath.c_str(),
                                                sInterfaceInterface, "Disconnect") < 0) {
@@ -999,14 +1034,14 @@ namespace
         //------------------------------------------------------------------------------------------
         // Connection completion and rollback.
 
-        void startConnectTimer()
+        void startPhaseTimer(const std::uint64_t usec)
         {
             cancelConnectTimer();
 
             uint64_t now {0};
             sd_event_now(mEvent, CLOCK_MONOTONIC, &now);
-            if (sd_event_add_time(mEvent, &mConnectTimerSource, CLOCK_MONOTONIC,
-                                  now + sConnectTimeoutUsec, 0, onConnectTimeout, this) < 0) {
+            if (sd_event_add_time(mEvent, &mConnectTimerSource, CLOCK_MONOTONIC, now + usec, 0,
+                                  onConnectTimeout, this) < 0) {
                 LOG(LogWarning) << "Wi-Fi: could not start the connection timer";
                 mConnectTimerSource = nullptr;
             }
@@ -1020,15 +1055,101 @@ namespace
             }
         }
 
-        void attemptSucceeded()
+        void beginFinalizing()
+        {
+            if (!mAttempt.active || mAttempt.phase != Attempt::Phase::waitingAuth)
+                return;
+
+            cancelConnectTimer();
+
+            mAttempt.phase = Attempt::Phase::finalizing;
+            mFinalizeOps.clear();
+            mFinalizeIndex = 0;
+
+            // Selecting a network makes wpa_supplicant mark the other blocks disabled in its
+            // running configuration, so they are re-enabled in both cases. Only a network this
+            // attempt created removes older duplicates or needs a SaveConfig.
+            if (mAttempt.createdNetwork) {
+                for (const std::string& path : mState.savedNetworkPaths(mAttempt.ssid)) {
+                    if (path != mAttempt.targetNetworkPath)
+                        mFinalizeOps.push_back({FinalizeOp::Kind::remove, path});
+                }
+            }
+
+            for (const std::string& path : mState.allNetworkPaths()) {
+                if (path == mAttempt.targetNetworkPath)
+                    continue;
+
+                const bool removed {std::any_of(
+                    mFinalizeOps.cbegin(), mFinalizeOps.cend(), [&path](const FinalizeOp& op) {
+                        return op.kind == FinalizeOp::Kind::remove && op.path == path;
+                    })};
+                if (!removed)
+                    mFinalizeOps.push_back({FinalizeOp::Kind::enable, path});
+            }
+
+            if (mAttempt.createdNetwork)
+                mFinalizeOps.push_back({FinalizeOp::Kind::save, std::string {}});
+
+            startNextFinalizeOp();
+        }
+
+        void startNextFinalizeOp()
+        {
+            if (!mAttempt.active || mAttempt.phase != Attempt::Phase::finalizing)
+                return;
+
+            if (mFinalizeIndex >= mFinalizeOps.size()) {
+                completeAttempt();
+                return;
+            }
+
+            const FinalizeOp& op {mFinalizeOps[mFinalizeIndex]};
+            sd_bus_message* message {nullptr};
+
+            if (op.kind == FinalizeOp::Kind::remove) {
+                if (sd_bus_message_new_method_call(mBus, &message, sService, mInterfacePath.c_str(),
+                                                   sInterfaceInterface, "RemoveNetwork") < 0) {
+                    ++mFinalizeIndex;
+                    startNextFinalizeOp();
+                    return;
+                }
+                sd_bus_message_append(message, "o", op.path.c_str());
+            }
+            else if (op.kind == FinalizeOp::Kind::enable) {
+                if (sd_bus_message_new_method_call(mBus, &message, sService, op.path.c_str(),
+                                                   sPropertiesInterface, "Set") < 0) {
+                    ++mFinalizeIndex;
+                    startNextFinalizeOp();
+                    return;
+                }
+                sd_bus_message_append(message, "ss", sNetworkInterface, "Enabled");
+                sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "b");
+                sd_bus_message_append(message, "b", 1);
+                sd_bus_message_close_container(message);
+            }
+            else {
+                if (sd_bus_message_new_method_call(mBus, &message, sService, mInterfacePath.c_str(),
+                                                   sInterfaceInterface, "SaveConfig") < 0) {
+                    ++mFinalizeIndex;
+                    startNextFinalizeOp();
+                    return;
+                }
+            }
+
+            send(message, Step::finalize, mEpoch, mAttempt.serial, op.path, mAttempt.ssid);
+        }
+
+        void completeAttempt()
         {
             if (!mAttempt.active)
                 return;
 
             const std::string ssid {mAttempt.ssid};
-            mAttempt.active = false;
+            mAttempt = Attempt {};
             ++mAttemptSerial;
-            mConnectRemovalQueue.clear();
+            mFinalizeOps.clear();
+            mFinalizeIndex = 0;
             cancelConnectTimer();
 
             mState.clearPending(ssid);
@@ -1038,9 +1159,6 @@ namespace
             publish();
 
             LOG(LogInfo) << "Wi-Fi: connected to '" << ssid << "'";
-
-            reEnableSavedNetworks();
-            callSaveConfig();
 
             SystemStatus::getInstance().setPollImmediately(true);
             mIpPollStarted = false;
@@ -1054,12 +1172,12 @@ namespace
                 return;
 
             const std::string ssid {mAttempt.ssid};
-            const std::string createdPath {mAttempt.newNetworkPath};
-            const bool created {mAttempt.createdNetwork};
+            const std::string createdPath {mAttempt.createdNetworkPath};
 
-            mAttempt.active = false;
+            mAttempt = Attempt {};
             ++mAttemptSerial;
-            mConnectRemovalQueue.clear();
+            mFinalizeOps.clear();
+            mFinalizeIndex = 0;
             cancelConnectTimer();
 
             mState.clearPending(ssid);
@@ -1068,49 +1186,10 @@ namespace
 
             LOG(LogInfo) << "Wi-Fi: the connection attempt for '" << ssid << "' failed: " << reason;
 
-            // A block that AddNetwork created is removed again, so the rejected credential is
-            // never written to imperative.conf.
-            if (created && !createdPath.empty())
+            // Only the block this attempt created is removed. Existing, declarative blocks are
+            // left untouched, no other network is re-enabled and nothing is saved.
+            if (!createdPath.empty())
                 callRemoveNetworkQuiet(createdPath);
-
-            reEnableSavedNetworks(createdPath);
-            if (hasInterface())
-                callMethodQuiet(mInterfacePath, sInterfaceInterface, "Reconnect");
-        }
-
-        void reEnableSavedNetworks(const std::string& excludedPath = std::string {})
-        {
-            if (!hasInterface())
-                return;
-
-            for (const std::string& path : mState.allNetworkPaths()) {
-                if (!excludedPath.empty() && path == excludedPath)
-                    continue;
-                setNetworkEnabled(path, true);
-            }
-        }
-
-        void setNetworkEnabled(const std::string& path, const bool enabled)
-        {
-            sd_bus_message* message {nullptr};
-            if (sd_bus_message_new_method_call(mBus, &message, sService, path.c_str(),
-                                               sPropertiesInterface, "Set") < 0)
-                return;
-
-            sd_bus_message_append(message, "ss", sNetworkInterface, "Enabled");
-            sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "b");
-            sd_bus_message_append(message, "b", enabled ? 1 : 0);
-            sd_bus_message_close_container(message);
-
-            send(message, Step::enableNetwork, mEpoch, 0, path, std::string {});
-        }
-
-        void callSaveConfig()
-        {
-            if (!hasInterface())
-                return;
-
-            callMethodQuiet(mInterfacePath, sInterfaceInterface, "SaveConfig");
         }
 
         void pollIpAddress()
@@ -1179,17 +1258,41 @@ namespace
                 mCurrentNetworkPath = currentNetwork;
 
             if (mAttempt.active) {
-                std::int64_t reason {0};
-                if (getSigned(properties, "DisconnectReason", reason) &&
-                    isAuthenticationFailure(reason)) {
-                    failAttempt(sAuthFailureMessage);
-                }
-                else if (hasState && state == "completed") {
-                    attemptSucceeded();
-                }
-                else if (hasState && isInProgressState(previousState) &&
-                         isDisconnectedState(state)) {
-                    failAttempt("The connection attempt failed");
+                switch (mAttempt.phase) {
+                    case Attempt::Phase::disconnectingOld:
+                        // The old network's completed or failed events are ignored here; only a
+                        // state that left the connected/in-progress set advances the attempt.
+                        maybeAdvanceAfterDisconnect();
+                        break;
+
+                    case Attempt::Phase::waitingAuth: {
+                        const bool targetCurrent {!mAttempt.targetNetworkPath.empty() &&
+                                                  mCurrentNetworkPath ==
+                                                      mAttempt.targetNetworkPath};
+
+                        if (targetCurrent || (hasState && isInProgressState(state)))
+                            mAttempt.sawTargetProgress = true;
+
+                        std::int64_t reason {0};
+                        if (getSigned(properties, "DisconnectReason", reason) &&
+                            isAuthenticationFailure(reason) &&
+                            (mAttempt.sawTargetProgress || targetCurrent)) {
+                            failAttempt(sAuthFailureMessage);
+                        }
+                        // The stored state is evaluated after both values were updated, so the
+                        // property order of State and CurrentNetwork does not matter.
+                        else if (mInterfaceState == "completed" && targetCurrent) {
+                            beginFinalizing();
+                        }
+                        else if (mAttempt.sawTargetProgress && hasState &&
+                                 isInProgressState(previousState) && isDisconnectedState(state)) {
+                            failAttempt("The connection attempt failed");
+                        }
+                        break;
+                    }
+
+                    default:
+                        break;
                 }
             }
 
@@ -1450,7 +1553,9 @@ namespace
                 return;
 
             ++mEpoch;
-            mAttempt.active = false;
+            mAttempt = Attempt {};
+            mFinalizeOps.clear();
+            mFinalizeIndex = 0;
             ++mAttemptSerial;
             cancelConnectTimer();
             cancelIpTimer();
@@ -1468,7 +1573,6 @@ namespace
             mCurrentNetworkPath.clear();
             mBsses.clear();
             mNetworks.clear();
-            mConnectRemovalQueue.clear();
             mForgetQueue.clear();
             mState.clear();
             publish();
@@ -1630,16 +1734,6 @@ namespace
             send(message, Step::quiet, mEpoch, 0, path, std::string {});
         }
 
-        void callMethodQuiet(const std::string& path, const char* interfaceName, const char* member)
-        {
-            sd_bus_message* message {nullptr};
-            if (sd_bus_message_new_method_call(mBus, &message, sService, path.c_str(),
-                                               interfaceName, member) < 0)
-                return;
-
-            send(message, Step::quiet, mEpoch, 0, path, std::string {});
-        }
-
         bool isStale(const FollowUp& followUp) const
         {
             if (followUp.epoch != 0 && followUp.epoch != mEpoch)
@@ -1656,6 +1750,34 @@ namespace
                          const bool failed,
                          const std::string& error)
         {
+            // AddNetwork replies are never dropped when the attempt ended while the call was in
+            // flight: the returned object has to be removed, or an orphan block accumulates.
+            if (followUp.step == Step::addNetwork) {
+                if (failed) {
+                    if (!isStale(followUp))
+                        failAttempt(error);
+                    return;
+                }
+
+                const char* path {nullptr};
+                if (sd_bus_message_read(message, "o", &path) < 0 || path == nullptr) {
+                    if (!isStale(followUp))
+                        failAttempt("The Wi-Fi service did not create the network");
+                    return;
+                }
+
+                if (isStale(followUp) || !mAttempt.active) {
+                    callRemoveNetworkQuiet(path);
+                    return;
+                }
+
+                mAttempt.createdNetworkPath = path;
+                mAttempt.targetNetworkPath = path;
+                mAttempt.phase = Attempt::Phase::selecting;
+                selectNetwork(path);
+                return;
+            }
+
             if (isStale(followUp))
                 return;
 
@@ -1692,33 +1814,45 @@ namespace
                         setError(error);
                     break;
 
-                case Step::addNetwork:
+                case Step::selectNetwork:
                     if (failed) {
                         failAttempt(error);
                         break;
                     }
+                    mAttempt.phase = Attempt::Phase::waitingAuth;
+                    mAttempt.sawTargetProgress = false;
                     {
-                        const char* path {nullptr};
-                        if (sd_bus_message_read(message, "o", &path) < 0 || path == nullptr) {
-                            failAttempt("The Wi-Fi service did not create the network");
+                        // A PropertiesChanged can have been processed while SelectNetwork was in
+                        // flight. Evaluate the stored state instead of waiting for another one.
+                        const bool targetCurrent {!mAttempt.targetNetworkPath.empty() &&
+                                                  mCurrentNetworkPath ==
+                                                      mAttempt.targetNetworkPath};
+                        if (targetCurrent || isInProgressState(mInterfaceState))
+                            mAttempt.sawTargetProgress = true;
+
+                        if (mInterfaceState == "completed" && targetCurrent) {
+                            beginFinalizing();
                             break;
                         }
-                        mAttempt.newNetworkPath = path;
-                        selectNetwork(path);
                     }
+                    startPhaseTimer(sConnectTimeoutUsec);
                     break;
 
-                case Step::selectNetwork:
-                    if (failed)
-                        failAttempt(error);
-                    else
-                        startConnectTimer();
+                case Step::disconnectOld:
+                    if (failed && error != WifiState::describeError(
+                                               "fi.w1.wpa_supplicant1.NotConnected", "")) {
+                        LOG(LogWarning) << "Wi-Fi: Disconnect before switching failed: " << error;
+                    }
+                    mAttempt.disconnectDone = true;
+                    maybeAdvanceAfterDisconnect();
                     break;
 
-                case Step::removeNetworkForConnect:
-                    // A stale block that could not be removed is not fatal, the new one is added
-                    // under a fresh object path anyway.
-                    removeNextForConnect();
+                case Step::finalize:
+                    if (failed) {
+                        LOG(LogWarning) << "Wi-Fi: a finalization call failed: " << error;
+                    }
+                    ++mFinalizeIndex;
+                    startNextFinalizeOp();
                     break;
 
                 case Step::removeNetworkForForget:
@@ -1731,25 +1865,6 @@ namespace
                     if (failed)
                         mForgetError = error;
                     finishForget();
-                    break;
-
-                case Step::enableNetwork:
-                    if (failed) {
-                        LOG(LogWarning) << "Wi-Fi: could not re-enable a saved network: " << error;
-                    }
-                    break;
-
-                case Step::saveConfig:
-                    if (failed) {
-                        LOG(LogWarning)
-                            << "Wi-Fi: could not save the Wi-Fi configuration: " << error;
-                    }
-                    break;
-
-                case Step::reconnect:
-                    if (failed) {
-                        LOG(LogWarning) << "Wi-Fi: could not reconnect: " << error;
-                    }
                     break;
 
                 case Step::quiet:
@@ -1850,7 +1965,12 @@ namespace
             auto* manager {static_cast<WpaSupplicantWifiManager*>(userdata)};
             sd_event_source_disable_unref(source);
             manager->mConnectTimerSource = nullptr;
-            manager->failAttempt(sConnectTimeoutMessage);
+
+            if (manager->mAttempt.active &&
+                manager->mAttempt.phase == Attempt::Phase::disconnectingOld)
+                manager->maybeAdvanceAfterDisconnect(true);
+            else
+                manager->failAttempt(sConnectTimeoutMessage);
             return 0;
         }
 
@@ -1990,18 +2110,46 @@ namespace
         // previous epoch are dropped.
         std::uint64_t mEpoch {0};
 
+        // The phases of one connection attempt. A saved target only needs disconnectingOld then
+        // selecting; an unsaved one also needs adding, and a successful created network needs the
+        // finalizing phase before the attempt is published as connected.
         struct Attempt {
+            enum class Phase {
+                none,
+                disconnectingOld,
+                adding,
+                selecting,
+                waitingAuth,
+                finalizing
+            };
+
             bool active {false};
             std::uint64_t serial {0};
             std::string ssid;
             std::string passphrase;
-            std::string newNetworkPath;
             bool createdNetwork {false};
+            Phase phase {Phase::none};
+            std::string targetNetworkPath;
+            std::string createdNetworkPath;
+            bool sawTargetProgress {false};
+            bool disconnectDone {false};
+        };
+
+        struct FinalizeOp {
+            enum class Kind {
+                remove,
+                enable,
+                save
+            };
+
+            Kind kind {Kind::remove};
+            std::string path;
         };
 
         Attempt mAttempt;
         std::uint64_t mAttemptSerial {0};
-        std::vector<std::string> mConnectRemovalQueue;
+        std::vector<FinalizeOp> mFinalizeOps;
+        std::size_t mFinalizeIndex {0};
 
         std::string mForgetSsid;
         std::string mForgetError;

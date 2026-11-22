@@ -135,6 +135,9 @@ wait-frames 30
 assert-absent "PASSWORD MUST BE BETWEEN 8 AND 63 CHARACTERS"
 capture wifi-error-dismissed
 
+# The pre-existing saved network is untouched by the failed attempt.
+assert-text "SAVED"
+
 controller a down
 controller a up
 wait-text "WI-FI NETWORK" 200

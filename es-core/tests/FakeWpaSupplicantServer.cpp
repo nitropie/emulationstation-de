@@ -282,6 +282,39 @@ void FakeWpaSupplicantServer::setConnectedState(const std::string& networkPath,
     mSelectedNetwork = networkPath;
 }
 
+void FakeWpaSupplicantServer::setNegativeDisconnectReasons(const bool value)
+{
+    mNegativeDisconnectReasons = value;
+}
+
+void FakeWpaSupplicantServer::setStaleCompletedOnDisconnect(const bool value)
+{
+    mStaleCompletedOnDisconnect = value;
+}
+
+void FakeWpaSupplicantServer::setHoldAddNetwork(const bool value) { mHoldAddNetwork = value; }
+
+void FakeWpaSupplicantServer::setAssociationDelayMs(const int milliseconds)
+{
+    mAssociationDelayMs = milliseconds;
+}
+
+void FakeWpaSupplicantServer::releaseHeldAddNetwork()
+{
+    post([this] {
+        for (HeldAddNetwork& held : mHeldAddNetwork) {
+            if (held.message == nullptr)
+                continue;
+
+            sd_bus_reply_method_return(held.message, "o", held.path.c_str());
+            emitNetworkAdded(held.path);
+            sd_bus_message_unref(held.message);
+            held.message = nullptr;
+        }
+        mHeldAddNetwork.clear();
+    });
+}
+
 bool FakeWpaSupplicantServer::start()
 {
     {
@@ -685,14 +718,38 @@ void FakeWpaSupplicantServer::selectNetwork(const std::string& path)
 
     if (!accepted) {
         mState = "disconnected";
-        mDisconnectReason = 15;
+        mDisconnectReason = mNegativeDisconnectReasons ? -15 : 15;
 
         WifiProperties failed;
         failed["State"] = std::string {"disconnected"};
-        failed["DisconnectReason"] = std::int64_t {15};
+        failed["DisconnectReason"] = std::int64_t {mDisconnectReason};
         emitInterfaceProperties(failed);
         return;
     }
+
+    if (mAssociationDelayMs > 0) {
+        mAssociationPath = path;
+        if (mAssociationTimer != nullptr) {
+            sd_event_source_disable_unref(mAssociationTimer);
+            mAssociationTimer = nullptr;
+        }
+
+        uint64_t now {0};
+        sd_event_now(mEvent, CLOCK_MONOTONIC, &now);
+        if (sd_event_add_time(mEvent, &mAssociationTimer, CLOCK_MONOTONIC,
+                              now + mAssociationDelayMs * 1000, 0, onAssociationTimeout, this) < 0)
+            mAssociationTimer = nullptr;
+        return;
+    }
+
+    completeSelection(path);
+}
+
+void FakeWpaSupplicantServer::completeSelection(const std::string& path)
+{
+    const auto network {mNetworks.find(path)};
+    if (network == mNetworks.end())
+        return;
 
     mState = "completed";
 
@@ -711,6 +768,18 @@ void FakeWpaSupplicantServer::selectNetwork(const std::string& path)
     completed["CurrentNetwork"] = path;
     completed["CurrentBSS"] = bssPath;
     emitInterfaceProperties(completed);
+}
+
+int FakeWpaSupplicantServer::onAssociationTimeout(sd_event_source* source, uint64_t, void* userdata)
+{
+    auto* server {static_cast<FakeWpaSupplicantServer*>(userdata)};
+    sd_event_source_disable_unref(source);
+    server->mAssociationTimer = nullptr;
+
+    const std::string path {server->mAssociationPath};
+    server->mAssociationPath.clear();
+    server->completeSelection(path);
+    return 0;
 }
 
 int FakeWpaSupplicantServer::onRootProperty(sd_bus*,
@@ -1006,6 +1075,13 @@ int FakeWpaSupplicantServer::onAddNetwork(sd_bus_message* message,
         server->mCalls.addedKeyMgmt.push_back(network.keyMgmt);
     }
 
+    if (server->mHoldAddNetwork) {
+        // The reply is deferred until releaseHeldAddNetwork(). The object already exists, which
+        // is what a slow daemon looks like to a client that gives up meanwhile.
+        server->mHeldAddNetwork.push_back({sd_bus_message_ref(message), path});
+        return 1;
+    }
+
     const int result {sd_bus_reply_method_return(message, "o", path.c_str())};
     server->emitNetworkAdded(path);
     return result;
@@ -1076,6 +1152,15 @@ int FakeWpaSupplicantServer::onDisconnect(sd_bus_message* message, void* userdat
         ++server->mCalls.disconnect;
     }
 
+    // A real daemon can still publish the old completed state after Disconnect was sent. The
+    // manager must ignore it while it is tearing the old network down.
+    if (server->mStaleCompletedOnDisconnect && !server->mCurrentNetwork.empty()) {
+        WifiProperties stale;
+        stale["State"] = std::string {"completed"};
+        stale["CurrentNetwork"] = server->mCurrentNetwork;
+        server->emitInterfaceProperties(stale);
+    }
+
     server->mState = "disconnected";
     server->mSelectedNetwork.clear();
     server->mCurrentNetwork.clear();
@@ -1110,6 +1195,8 @@ int FakeWpaSupplicantServer::onSaveConfig(sd_bus_message* message, void* userdat
     {
         std::lock_guard<std::mutex> lock {server->mCallsMutex};
         ++server->mCalls.saveConfig;
+        server->mCalls.removeCountAtSave = server->mCalls.removeNetwork;
+        server->mCalls.enableCountAtSave = static_cast<int>(server->mCalls.enabledPaths.size());
     }
     return sd_bus_reply_method_return(message, nullptr);
 }

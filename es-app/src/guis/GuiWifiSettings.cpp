@@ -361,6 +361,13 @@ std::string GuiWifiSettings::summaryLabel(const WifiSnapshot& snapshot)
         return interface +
                (snapshot.hardBlocked ? " (" + _("HARD BLOCKED") + ")" : " (" + _("OFF") + ")");
 
+    // While a switch is in progress the daemon may already be disconnected, so the pending
+    // target is the only useful summary. Without this the line flickers to NOT CONNECTED.
+    for (const WifiNetwork& network : snapshot.networks) {
+        if (network.pending == WifiOp::connecting)
+            return interface + " — " + _("CONNECTING TO") + " " + network.ssid;
+    }
+
     if (snapshot.connected) {
         std::string summary {interface + " — " + _("CONNECTED TO") + " " + snapshot.activeSsid};
         if (!snapshot.ipAddress.empty())

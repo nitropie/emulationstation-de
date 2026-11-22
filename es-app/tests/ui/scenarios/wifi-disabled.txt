@@ -1,0 +1,7 @@
+wait-text "Super Nintendo Entertainment System" 600
+key escape down
+key escape up
+wait-text "MAIN MENU" 200
+assert-absent "WI-FI"
+capture menu-no-wifi
+quit

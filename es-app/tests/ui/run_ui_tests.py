@@ -11,9 +11,12 @@ import argparse
 import json
 import os
 import re
+import select
 import shutil
+import stat
 import subprocess
 import sys
+import time
 import xml.etree.ElementTree as ET
 
 CAPTURE_RE = re.compile(
@@ -94,6 +97,30 @@ def base_environment(home, appdata, run_dir):
         "LD_LIBRARY_PATH": libglvnd_dir(),
     })
     return env
+
+
+def remove_tree(path):
+    """Removes a run directory after making every entry writable.
+
+    The fixtures are copied from the Nix store, and scenarios such as profileflushfail make parts
+    of the staged tree read-only on purpose. A plain rmtree cannot descend into those directories,
+    and ignoring the error would leave the next run of the scenario with a half-removed directory.
+    """
+    if not os.path.exists(path):
+        return
+
+    for root, directories, files in os.walk(path):
+        try:
+            os.chmod(root, 0o755)
+        except OSError:
+            pass
+        for name in directories + files:
+            try:
+                os.chmod(os.path.join(root, name), 0o755)
+            except OSError:
+                pass
+
+    shutil.rmtree(path)
 
 
 def stage_profile_state(fixture_root, appdata):
@@ -183,6 +210,44 @@ def stage_profile(fixture_root, run_dir, profile):
         "NITROPIE_PROFILE_ID": profile["id"],
     }
     return home, appdata, env
+
+
+def start_wifi_server(binary, mock, config_path):
+    """Starts the fake wpa_supplicant service and waits until it owns the bus name."""
+    if not os.access(binary, os.X_OK):
+        fail(f"the Wi-Fi test server {binary} is not executable")
+    if not os.path.isfile(mock):
+        fail(f"missing Wi-Fi mock configuration {mock}")
+
+    process = subprocess.Popen([binary, "--config", mock, "--config-path", config_path],
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        if process.poll() is not None:
+            output = process.stdout.read() if process.stdout else ""
+            fail(f"the Wi-Fi test server exited before becoming ready: {output.strip()}")
+        ready, _, _ = select.select([process.stdout], [], [], 0.2)
+        if not ready:
+            continue
+        line = process.stdout.readline()
+        if "es-wifi-test-server ready" in line:
+            return process
+
+    process.kill()
+    process.wait()
+    fail("the Wi-Fi test server did not become ready")
+
+
+def stop_wifi_server(process):
+    if process is None:
+        return
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
 
 
 def dump_frontend_log(run_dir):
@@ -322,6 +387,7 @@ def main():
     parser.add_argument("--fixtures", required=True)
     parser.add_argument("--scenarios", required=True)
     parser.add_argument("--work-dir", required=True)
+    parser.add_argument("--wifi-server")
     parser.add_argument("--scenario")
     parser.add_argument("--timeout", type=int, default=180)
     args = parser.parse_args()
@@ -346,11 +412,20 @@ def main():
         with open(expectations_path, encoding="utf-8") as handle:
             expectations = json.load(handle)
 
+        wifi = expectations.get("wifi", {})
+        wifi_backend = expectations.get("wifiBackend")
+        if wifi_backend == "required" and not args.wifi_server:
+            print(f"[ui-runner] SKIP {name} (Wi-Fi backend absent)")
+            continue
+        if wifi_backend == "absent" and args.wifi_server:
+            print(f"[ui-runner] SKIP {name} (Wi-Fi backend present)")
+            continue
+
         profile = expectations.get("profile")
         if profile:
             fixture_root = os.path.join(args.fixtures, profile.get("fixture", name))
         else:
-            fixture_root = os.path.join(args.fixtures, name)
+            fixture_root = os.path.join(args.fixtures, expectations.get("fixture", name))
         if not os.path.isdir(fixture_root):
             fail(f"missing fixture directory {fixture_root}")
 
@@ -362,7 +437,7 @@ def main():
         observed = []
         for index in range(runs):
             run_dir = os.path.join(args.work_dir, f"{name}-run-{index}")
-            shutil.rmtree(run_dir, ignore_errors=True)
+            remove_tree(run_dir)
 
             global CURRENT_RUN_DIR
             CURRENT_RUN_DIR = run_dir
@@ -374,13 +449,56 @@ def main():
             env = base_environment(home, appdata, run_dir)
             env.update(extra_env)
 
+            config_path = os.path.join(run_dir, wifi.get("config", "imperative.conf"))
+            wifi_server = None
+            if wifi_backend == "required":
+                rfkill_path = os.path.join(run_dir, "rfkill")
+                with open(rfkill_path, "w", encoding="utf-8"):
+                    pass
+                env["ES_DE_WIFI_DBUS_BUS"] = "session"
+                env["ES_DE_WIFI_RFKILL_PATH"] = rfkill_path
+                wifi_server = start_wifi_server(
+                    args.wifi_server,
+                    os.path.join(fixture_root, wifi.get("mock", "wifi-mock.json")),
+                    config_path)
+
             launch_captures = []
-            for script_name in script_names:
-                script = os.path.join(args.scenarios, script_name)
-                if not os.path.isfile(script):
-                    fail(f"missing scenario {script}")
-                launch_captures.append(run_launch(args.binary, script, env, run_dir,
-                                                  args.timeout))
+            try:
+                for script_name in script_names:
+                    script = os.path.join(args.scenarios, script_name)
+                    if not os.path.isfile(script):
+                        fail(f"missing scenario {script}")
+                    launch_captures.append(run_launch(args.binary, script, env, run_dir,
+                                                      args.timeout))
+            finally:
+                stop_wifi_server(wifi_server)
+
+            wifi_state = {}
+            if wifi_backend == "required":
+                log_path = os.path.join(appdata, "logs", "es_log.txt")
+                if not os.path.isfile(log_path):
+                    fail("the frontend did not write es_log.txt")
+                with open(log_path, encoding="utf-8", errors="replace") as handle:
+                    log_text = handle.read()
+                for forbidden in wifi.get("logForbid", []):
+                    if forbidden in log_text:
+                        fail(f"es_log.txt contains {forbidden!r}")
+
+                if os.path.isfile(config_path):
+                    mode = stat.S_IMODE(os.stat(config_path).st_mode)
+                    if mode != 0o600:
+                        fail(f"{wifi.get('config', 'imperative.conf')} has mode {oct(mode)}")
+                    with open(config_path, encoding="utf-8", errors="replace") as handle:
+                        config_text = handle.read()
+                    for forbidden in wifi.get("configForbid", []):
+                        if forbidden in config_text:
+                            fail(f"the persisted Wi-Fi configuration contains {forbidden!r}")
+                    for required in wifi.get("configRequire", []):
+                        if required not in config_text:
+                            fail(f"the persisted Wi-Fi configuration does not contain {required!r}")
+                    wifi_state["config"] = config_text
+                elif wifi.get("expectConfig"):
+                    fail(f"{wifi.get('config', 'imperative.conf')} was not written")
 
             files = {}
             for entry in expectations.get("files", []):
@@ -418,7 +536,7 @@ def main():
                 gamelist_checks = check_gamelist(gamelist, expectations["persisted"])
 
             observed.append({"captures": launch_captures, "files": files,
-                             "persisted": gamelist_checks})
+                             "persisted": gamelist_checks, "wifi": wifi_state})
             print(f"[ui-runner] run {index + 1}/{runs} of {name} passed")
 
         first = observed[0]
@@ -434,6 +552,8 @@ def main():
                 fail(f"{name}: run {index} persisted different files than run 1")
             if run["persisted"] != first["persisted"]:
                 fail(f"{name}: run {index} persisted different values than run 1")
+            if run["wifi"] != first["wifi"]:
+                fail(f"{name}: run {index} persisted a different Wi-Fi configuration than run 1")
 
         results[name] = {
             "runs": runs,

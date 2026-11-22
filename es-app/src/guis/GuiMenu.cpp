@@ -29,11 +29,13 @@
 #include "VolumeControl.h"
 #include "audio/AudioOutputManager.h"
 #include "bluetooth/BluetoothManager.h"
+#include "wifi/WifiManager.h"
 #include "components/OptionListComponent.h"
 #include "components/SliderComponent.h"
 #include "components/SwitchComponent.h"
 #include "guis/GuiAlternativeEmulators.h"
 #include "guis/GuiBluetoothSettings.h"
+#include "guis/GuiWifiSettings.h"
 #include "guis/GuiCollectionSystemsOptions.h"
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiGameImporter.h"
@@ -176,6 +178,10 @@ GuiMenu::GuiMenu()
     if (isFullUI && !UIModeController::getInstance()->isUIModeKid() &&
         BluetoothManager::hasBackend())
         addEntry(_("BLUETOOTH"), mMenuColorPrimary, true, [this] { openBluetoothSettings(); });
+
+    if (isFullUI && !UIModeController::getInstance()->isUIModeKid() &&
+        WifiManager::hasBackend())
+        addEntry(_("WI-FI"), mMenuColorPrimary, true, [this] { openWifiSettings(); });
 
     if (isFullUI)
         addEntry(_("GAME COLLECTION SETTINGS"), mMenuColorPrimary, true,
@@ -1508,6 +1514,11 @@ void GuiMenu::openSoundOptions()
 void GuiMenu::openBluetoothSettings()
 {
     mWindow->pushGui(new GuiBluetoothSettings);
+}
+
+void GuiMenu::openWifiSettings()
+{
+    mWindow->pushGui(new GuiWifiSettings);
 }
 
 void GuiMenu::openInputDeviceOptions()

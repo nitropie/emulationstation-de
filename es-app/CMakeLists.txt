@@ -33,6 +33,7 @@ set(ES_HEADERS
     # GUIs
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiAlternativeEmulators.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiBluetoothSettings.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiWifiSettings.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiApplicationUpdater.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiCollectionSystemsOptions.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiGameImporter.h
@@ -105,6 +106,7 @@ set(ES_SOURCES
     # GUIs
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiAlternativeEmulators.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiBluetoothSettings.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiWifiSettings.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiApplicationUpdater.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiCollectionSystemsOptions.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiGameImporter.cpp
@@ -521,17 +523,34 @@ if(BUILD_TESTS)
     add_test(NAME es-app-tests COMMAND es-app-tests)
     set_tests_properties(es-app-tests PROPERTIES TIMEOUT 120)
 
+    # A wpa_supplicant D-Bus service for the native Wi-Fi UI scenarios. The frontend talks to it
+    # exactly as it talks to the real daemon, so the scenarios drive the real manager code.
+    if(WIFI_MANAGER)
+        add_executable(es-wifi-test-server
+                       ${CMAKE_CURRENT_SOURCE_DIR}/tests/wifi/EsWifiTestServer.cpp
+                       ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests/FakeWpaSupplicantServer.cpp)
+        target_include_directories(es-wifi-test-server PRIVATE
+                                   ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/src
+                                   ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests)
+        target_link_libraries(es-wifi-test-server ${COMMON_LIBRARIES} es-core)
+    endif()
+
     # Runs the real frontend headless and drives it with injected SDL input.
     # REQUIRED: a missing interpreter must fail the configure, never skip the UI test.
     find_program(PYTHON3_EXECUTABLE python3 REQUIRED)
     if(PYTHON3_EXECUTABLE)
+        set(UI_TEST_WIFI_ARGS)
+        if(WIFI_MANAGER)
+            list(APPEND UI_TEST_WIFI_ARGS --wifi-server $<TARGET_FILE:es-wifi-test-server>)
+        endif()
         add_test(NAME es-ui-tests
                  COMMAND ${PYTHON3_EXECUTABLE}
                          ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/run_ui_tests.py
                          --binary $<TARGET_FILE:es-de>
                          --fixtures ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/fixtures
                          --scenarios ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/scenarios
-                         --work-dir ${CMAKE_CURRENT_BINARY_DIR}/ui-tests)
+                         --work-dir ${CMAKE_CURRENT_BINARY_DIR}/ui-tests
+                         ${UI_TEST_WIFI_ARGS})
         set_tests_properties(es-ui-tests PROPERTIES TIMEOUT 300)
     endif()
 endif()

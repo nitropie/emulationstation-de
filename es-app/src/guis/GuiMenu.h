@@ -43,6 +43,7 @@ private:
     void openSoundOptions();
     void openInputDeviceOptions();
     void openBluetoothSettings();
+    void openWifiSettings();
     void openConfigInput(GuiSettings* settings);
     void openCollectionSystemOptions();
     void openOtherOptions();

@@ -1,0 +1,177 @@
+wait-text "Super Nintendo Entertainment System" 600
+key escape down
+key escape up
+wait-text "MAIN MENU" 200
+assert-text "WI-FI"
+capture wifi-menu
+
+# SCRAPER, UI SETTINGS, SOUND SETTINGS, INPUT DEVICE SETTINGS, BLUETOOTH, WI-FI.
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller a down
+controller a up
+
+wait-text "POWER" 200
+wait-frames 30
+capture wifi-open
+
+# The POWER row is selected when the screen opens.
+controller a down
+controller a up
+
+wait-text "(OFF)" 200
+assert-absent "SCAN FOR NETWORKS"
+capture wifi-power-off
+
+controller a down
+controller a up
+
+wait-text "SCAN FOR NETWORKS" 300
+wait-text "CAFE" 600
+capture wifi-power-on
+
+# The scan row, then the Cafe network row.
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller a down
+controller a up
+
+wait-text "WI-FI NETWORK" 200
+assert-text "CONNECT"
+capture wifi-actions
+
+controller down down
+controller down up
+controller a down
+controller a up
+
+wait-text "WI-FI PASSWORD" 200
+capture wifi-password
+
+# The cursor starts on the title; two downs reach the keyboard grid. The second one also moves
+# the keyboard cursor to its second row.
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller right down
+controller right up
+controller right down
+controller right up
+controller right down
+controller right up
+controller right down
+controller right up
+controller right down
+controller right up
+controller a down
+controller a up
+controller up down
+controller up up
+controller right down
+controller right up
+controller a down
+controller a up
+controller down down
+controller down up
+controller down down
+controller down up
+controller a down
+controller a up
+controller up down
+controller up up
+controller up down
+controller up up
+controller left down
+controller left up
+controller left down
+controller left up
+controller a down
+controller a up
+controller left down
+controller left up
+controller left down
+controller left up
+controller a down
+controller a up
+controller right down
+controller right up
+controller a down
+controller a up
+controller up down
+controller up up
+controller left down
+controller left up
+controller left down
+controller left up
+controller a down
+controller a up
+controller a down
+controller a up
+controller down down
+controller down up
+controller right down
+controller right up
+controller right down
+controller right up
+controller right down
+controller right up
+controller right down
+controller right up
+controller right down
+controller right up
+controller right down
+controller right up
+controller right down
+controller right up
+controller right down
+controller right up
+controller right down
+controller right up
+controller right down
+controller right up
+controller right down
+controller right up
+controller a down
+controller a up
+
+wait-text "CONNECTED TO Cafe" 900
+capture wifi-connected
+
+# The cursor stayed on the Cafe network row. FORGET is the fourth action below the header.
+controller a down
+controller a up
+
+wait-text "WI-FI NETWORK" 200
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller a down
+controller a up
+
+# An unsaved visible WPA-PSK network shows SECURED, which proves FORGET ran rather than
+# DISCONNECT.
+wait-text "SECURED" 300
+assert-absent "CONNECTED TO Cafe"
+capture wifi-forgotten
+
+quit

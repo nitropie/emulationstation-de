@@ -673,6 +673,7 @@ namespace
             }
 
             // The published state follows the accepted write, never the other way around.
+            mRfkillKnown = true;
             mRadioPowered = powered;
             mState.setPowered(powered);
             publish();
@@ -1120,6 +1121,13 @@ namespace
             if (hasState) {
                 mInterfaceState = state;
                 mState.setInterfaceState(state);
+
+                // Until an rfkill event is seen, the interface state is the only evidence of the
+                // radio state. A daemon that publishes an interface is not soft blocked.
+                if (!mRfkillKnown) {
+                    mRadioPowered = state != "interface_disabled";
+                    mState.setPowered(mRadioPowered);
+                }
             }
 
             bool scanning {false};
@@ -1758,6 +1766,7 @@ namespace
                 if (size != static_cast<ssize_t>(sizeof(event)) || event.type != RFKILL_TYPE_WLAN)
                     continue;
 
+                mRfkillKnown = true;
                 mRadioPowered = event.soft == 0;
                 mState.setPowered(mRadioPowered);
                 mState.setHardBlocked(event.hard != 0);
@@ -1962,6 +1971,7 @@ namespace
         std::vector<std::string> mForgetQueue;
 
         std::string mActiveSsid;
+        bool mRfkillKnown {false};
         bool mRadioPowered {true};
         bool mIpPollStarted {false};
 

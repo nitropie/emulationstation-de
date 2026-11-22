@@ -137,6 +137,7 @@ private:
     std::string mActiveSsid;
     std::string mIpAddress;
     std::string mLastError;
+    std::uint64_t mErrorSequence {0};
 };
 
 #endif // ES_CORE_WIFI_STATE_H

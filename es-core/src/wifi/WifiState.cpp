@@ -137,7 +137,15 @@ void WifiState::setPending(const std::string& ssid, const WifiOp op)
 
 void WifiState::clearPending(const std::string& ssid) { mPending.erase(ssid); }
 
-void WifiState::setLastError(const std::string& error) { mLastError = error; }
+void WifiState::setLastError(const std::string& error)
+{
+    mLastError = error;
+
+    // The sequence only moves when a failure is published, so a screen can tell a new identical
+    // failure from the one it has already shown.
+    if (!error.empty())
+        ++mErrorSequence;
+}
 
 void WifiState::clear()
 {
@@ -154,6 +162,7 @@ void WifiState::clear()
     mActiveSsid.clear();
     mIpAddress.clear();
     mLastError.clear();
+    mErrorSequence = 0;
 }
 
 std::vector<std::string> WifiState::savedNetworkPaths(const std::string& ssid) const
@@ -203,6 +212,7 @@ WifiSnapshot WifiState::toSnapshot(const std::uint64_t sequence) const
     snapshot.activeSsid = mActiveSsid;
     snapshot.ipAddress = mIpAddress;
     snapshot.lastError = mLastError;
+    snapshot.errorSequence = mErrorSequence;
 
     // wpa_supplicant can hold several Network objects for one SSID after a failed connection
     // attempt. One entry per SSID is published, and the first object is the representative.

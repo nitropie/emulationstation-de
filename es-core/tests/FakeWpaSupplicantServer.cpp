@@ -892,6 +892,7 @@ int FakeWpaSupplicantServer::onRemoveNetwork(sd_bus_message* message, void* user
         return -EINVAL;
 
     const std::string objectPath {path};
+    const bool wasCurrent {objectPath == server->mCurrentNetwork};
     server->mNetworks.erase(objectPath);
 
     {
@@ -902,6 +903,20 @@ int FakeWpaSupplicantServer::onRemoveNetwork(sd_bus_message* message, void* user
 
     const int result {sd_bus_reply_method_return(message, nullptr)};
     server->emitNetworkRemoved(objectPath);
+
+    // Removing the active network disconnects, exactly like wpa_supplicant does when a selected
+    // network disappears.
+    if (wasCurrent) {
+        server->mState = "disconnected";
+        server->mSelectedNetwork.clear();
+        server->mCurrentNetwork.clear();
+        server->mCurrentBss.clear();
+
+        WifiProperties changed;
+        changed["State"] = std::string {"disconnected"};
+        server->emitInterfaceProperties(changed);
+    }
+
     return result;
 }
 

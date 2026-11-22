@@ -291,6 +291,33 @@ TEST_CASE(errorsDoNotEchoCredentials)
     EXPECT(message.find("hunter2") == std::string::npos);
 }
 
+TEST_CASE(repeatedErrorsAdvanceTheErrorSequence)
+{
+    WifiState state;
+    EXPECT(state.toSnapshot(1).errorSequence == 0);
+
+    state.setLastError("The Wi-Fi password was not accepted");
+    const WifiSnapshot first {state.toSnapshot(2)};
+    EXPECT(first.errorSequence == 1);
+    EXPECT(first.lastError == "The Wi-Fi password was not accepted");
+
+    // The exact same text is still a new failure and has to advance the sequence.
+    state.setLastError("The Wi-Fi password was not accepted");
+    const WifiSnapshot second {state.toSnapshot(3)};
+    EXPECT(second.errorSequence == 2);
+    EXPECT(second.lastError == first.lastError);
+
+    // Clearing the error is not a failure.
+    state.setLastError("");
+    EXPECT(state.toSnapshot(4).errorSequence == 2);
+
+    state.setLastError("Another failure");
+    EXPECT(state.toSnapshot(5).errorSequence == 3);
+
+    state.clear();
+    EXPECT(state.toSnapshot(6).errorSequence == 0);
+}
+
 TEST_CASE(interfaceStateAndPendingReachTheSnapshot)
 {
     WifiState state;

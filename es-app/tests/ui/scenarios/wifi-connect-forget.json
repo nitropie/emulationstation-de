@@ -1,0 +1,12 @@
+{
+  "runs": 2,
+  "fixture": "wifi",
+  "wifiBackend": "required",
+  "wifi": {
+    "mock": "wifi-mock.json",
+    "config": "imperative.conf",
+    "expectConfig": true,
+    "logForbid": ["hunter22"],
+    "configForbid": ["Cafe"]
+  }
+}

@@ -52,7 +52,8 @@ key escape down
 key escape up
 wait-text "MAIN MENU" 120
 
-# UTILITIES is seven entries from the top with the Bluetooth entry present.
+# UTILITIES is the entry just above QUIT ES-DE. Navigating from the bottom keeps the
+# count independent of the optional WI-FI entry above it.
 key down down
 key down up
 key down down
@@ -67,6 +68,34 @@ key down down
 key down up
 key down down
 key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key down down
+key down up
+key up down
+key up up
 key return down
 key return up
 wait-text "RESCAN ROM DIRECTORY" 300

@@ -1,0 +1,18 @@
+{
+  "interfaces": [
+    {"path": "/fi/w1/wpa_supplicant1/Interfaces/1", "ifname": "wlan0"}
+  ],
+  "bsss": [
+    {
+      "path": "/fi/w1/wpa_supplicant1/Interfaces/1/BSSs/1",
+      "ssid": "Cafe",
+      "signal": -40,
+      "frequency": 2412,
+      "keyMgmt": ["WPA-PSK"]
+    }
+  ],
+  "networks": [],
+  "passphrases": {
+    "Cafe": "hunter22"
+  }
+}

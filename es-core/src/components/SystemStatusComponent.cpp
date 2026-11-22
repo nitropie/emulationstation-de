@@ -18,6 +18,7 @@ SystemStatusComponent::SystemStatusComponent()
     : mRenderer {Renderer::getInstance()}
     , mHasBluetooth {false}
     , mHasWifi {false}
+    , mHasEthernet {false}
     , mHasCellular {false}
     , mHasBattery {false}
     , mBatteryCharging {false}
@@ -45,6 +46,7 @@ void SystemStatusComponent::updateGrid()
     if (Settings::getInstance()->getBool("SystemStatusDisplayAll")) {
         mHasBluetooth = true;
         mHasWifi = true;
+        mHasEthernet = true;
         mHasCellular = true;
         mHasBattery = true;
     }
@@ -57,6 +59,9 @@ void SystemStatusComponent::updateGrid()
     if (mHasWifi && Settings::getInstance()->getBool("SystemStatusWifi") &&
         std::find(mEntries.cbegin(), mEntries.cend(), "wifi") != mEntries.cend())
         mDisplayEntries.emplace_back("wifi");
+    if (mHasEthernet && Settings::getInstance()->getBool("SystemStatusEthernet") &&
+        std::find(mEntries.cbegin(), mEntries.cend(), "ethernet") != mEntries.cend())
+        mDisplayEntries.emplace_back("ethernet");
     if (mHasCellular && Settings::getInstance()->getBool("SystemStatusCellular") &&
         std::find(mEntries.cbegin(), mEntries.cend(), "cellular") != mEntries.cend())
         mDisplayEntries.emplace_back("cellular");
@@ -169,6 +174,7 @@ void SystemStatusComponent::applyTheme(const std::shared_ptr<ThemeData>& theme,
     mIconPathMap.clear();
     mIconPathMap["bluetooth"] = ":/graphics/systemstatus/bluetooth.svg";
     mIconPathMap["wifi"] = ":/graphics/systemstatus/wifi.svg";
+    mIconPathMap["ethernet"] = ":/graphics/systemstatus/ethernet.svg";
     mIconPathMap["cellular"] = ":/graphics/systemstatus/cellular.svg";
     mIconPathMap["battery_charging"] = ":/graphics/systemstatus/battery_charging.svg";
     mIconPathMap["battery_low"] = ":/graphics/systemstatus/battery_low.svg";
@@ -313,6 +319,8 @@ void SystemStatusComponent::applyTheme(const std::shared_ptr<ThemeData>& theme,
         mIconPathMap["wifi"] = elem->get<std::string>(PREFIX "icon_wifi");
     if (elem->has(PREFIX "icon_bluetooth"))
         mIconPathMap["bluetooth"] = elem->get<std::string>(PREFIX "icon_bluetooth");
+    if (elem->has(PREFIX "icon_ethernet"))
+        mIconPathMap["ethernet"] = elem->get<std::string>(PREFIX "icon_ethernet");
     if (elem->has(PREFIX "icon_cellular"))
         mIconPathMap["cellular"] = elem->get<std::string>(PREFIX "icon_cellular");
     if (elem->has(PREFIX "icon_battery_charging"))
@@ -363,6 +371,10 @@ void SystemStatusComponent::update(int deltaTime)
         }
         if (mHasWifi != status.hasWifi) {
             mHasWifi = status.hasWifi;
+            statusChanged = true;
+        }
+        if (mHasEthernet != status.hasEthernet) {
+            mHasEthernet = status.hasEthernet;
             statusChanged = true;
         }
         if (mHasCellular != status.hasCellular) {

@@ -42,6 +42,20 @@ GuiSystemStatusOptions::GuiSystemStatusOptions(const std::string& title)
         }
     });
 
+    // Display Ethernet indicator.
+    auto systemStatusEthernet = std::make_shared<SwitchComponent>();
+    systemStatusEthernet->setState(Settings::getInstance()->getBool("SystemStatusEthernet"));
+    addWithLabel(_("DISPLAY ETHERNET STATUS INDICATOR"), systemStatusEthernet);
+    addSaveFunc([systemStatusEthernet, this] {
+        if (systemStatusEthernet->getState() !=
+            Settings::getInstance()->getBool("SystemStatusEthernet")) {
+            Settings::getInstance()->setBool("SystemStatusEthernet",
+                                             systemStatusEthernet->getState());
+            setNeedsSaving();
+            setNeedsUpdateStatusComponents();
+        }
+    });
+
 #if defined(__ANDROID__)
     // Display cellular indicator.
     auto systemStatusCellular = std::make_shared<SwitchComponent>();

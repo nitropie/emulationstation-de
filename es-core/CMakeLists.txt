@@ -289,10 +289,14 @@ if(BUILD_TESTS)
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/WifiManagerTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/WifiMessageParserTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/WifiStateTests.cpp
-                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/StringUtilTests.cpp)
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/StringUtilTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/SystemStatusEthernetTests.cpp)
     target_include_directories(es-core-tests PRIVATE
                                ${CMAKE_CURRENT_SOURCE_DIR}/tests
                                ${CMAKE_CURRENT_SOURCE_DIR}/../es-app/src)
+    # The Ethernet icon test reads the bundled SVG from the source tree.
+    target_compile_definitions(es-core-tests PRIVATE
+                               ES_CORE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     # Same link line as es-app, as linking es-core pulls in the static LunaSVG library.
     target_link_libraries(es-core-tests ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS} es-core lunasvg::lunasvg)
     add_test(NAME es-core-tests COMMAND es-core-tests)

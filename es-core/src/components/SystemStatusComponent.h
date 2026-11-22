@@ -40,6 +40,7 @@ private:
 
     bool mHasBluetooth;
     bool mHasWifi;
+    bool mHasEthernet;
     bool mHasCellular;
     bool mHasBattery;
     bool mBatteryCharging;
@@ -51,8 +52,8 @@ private:
     std::map<std::string, int> mEntryMap;
     std::map<std::string, std::string> mIconPathMap;
 
-    static inline std::vector<std::string> sAllowedEntries {"bluetooth", "wifi", "cellular",
-                                                            "battery"};
+    static inline std::vector<std::string> sAllowedEntries {"bluetooth", "wifi", "ethernet",
+                                                            "cellular", "battery"};
 
     unsigned int mColorShift;
     unsigned int mBackgroundColor;

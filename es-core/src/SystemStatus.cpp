@@ -17,6 +17,8 @@
 #include <SDL2/SDL_timer.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 
 #if defined(__linux__) && !defined(__ANDROID__)
 #include <bluetooth/bluetooth.h>
@@ -51,6 +53,7 @@ SystemStatus::SystemStatus() noexcept
     , mPollImmediately {false}
     , mHasBluetooth {false}
     , mHasWifi {false}
+    , mHasEthernet {false}
     , mHasCellular {false}
     , mHasBattery {false}
     , mBatteryCharging {false}
@@ -63,6 +66,7 @@ SystemStatus::SystemStatus() noexcept
     // these calls in a separate thread anyway.
     getStatusBluetooth();
     getStatusWifi();
+    getStatusEthernet();
     getStatusCellular();
     getStatusBattery();
 #elif !defined(__FreeBSD__) && !defined(__HAIKU__)
@@ -93,6 +97,7 @@ void SystemStatus::setCheckFlags()
     std::unique_lock<std::mutex> statusLock {mStatusMutex};
     mCheckBluetooth = Settings::getInstance()->getBool("SystemStatusBluetooth");
     mCheckWifi = Settings::getInstance()->getBool("SystemStatusWifi");
+    mCheckEthernet = Settings::getInstance()->getBool("SystemStatusEthernet");
     mCheckCellular = Settings::getInstance()->getBool("SystemStatusCellular");
     mCheckBattery = Settings::getInstance()->getBool("SystemStatusBattery");
 
@@ -100,6 +105,8 @@ void SystemStatus::setCheckFlags()
         mHasBluetooth = false;
     if (!mCheckWifi)
         mHasWifi = false;
+    if (!mCheckEthernet)
+        mHasEthernet = false;
     if (!mCheckCellular)
         mHasCellular = false;
     if (!mCheckBattery)
@@ -131,6 +138,7 @@ SystemStatus::Status SystemStatus::getStatus(const bool update)
     if (update) {
         getStatusBluetooth();
         getStatusWifi();
+        getStatusEthernet();
         getStatusCellular();
         getStatusBattery();
 #if (DEBUG_SYSTEM_STATUS)
@@ -138,6 +146,8 @@ SystemStatus::Status SystemStatus::getStatus(const bool update)
         status.append(mHasBluetooth ? "enabled" : "disabled")
             .append(", Wi-Fi ")
             .append(mHasWifi ? "enabled" : "disabled")
+            .append(", Ethernet ")
+            .append(mHasEthernet ? "enabled" : "disabled")
             .append(", cellular ")
             .append(mHasCellular ? "enabled" : "disabled")
             .append(", battery ")
@@ -156,6 +166,7 @@ SystemStatus::Status SystemStatus::getStatus(const bool update)
 
     mStatus.hasBluetooth = mHasBluetooth;
     mStatus.hasWifi = mHasWifi;
+    mStatus.hasEthernet = mHasEthernet;
     mStatus.hasCellular = mHasCellular;
     mStatus.hasBattery = mHasBattery;
     mStatus.batteryCharging = mBatteryCharging;
@@ -171,6 +182,7 @@ void SystemStatus::pollStatus()
 
         getStatusBluetooth();
         getStatusWifi();
+        getStatusEthernet();
         getStatusCellular();
         getStatusBattery();
         statusLock.unlock();
@@ -180,6 +192,8 @@ void SystemStatus::pollStatus()
         status.append(mHasBluetooth ? "enabled" : "disabled")
             .append(", Wi-Fi ")
             .append(mHasWifi ? "enabled" : "disabled")
+            .append(", Ethernet ")
+            .append(mHasEthernet ? "enabled" : "disabled")
             .append(", cellular ")
             .append(mHasCellular ? "enabled" : "disabled")
             .append(", battery ")
@@ -319,23 +333,77 @@ void SystemStatus::getStatusWifi()
         hasWifi = true;
 
 #elif defined(__linux__)
-    const std::string sysEntry {"/sys/class/net"};
-    auto entries {Utils::FileSystem::getDirContent(sysEntry, false)};
-    for (auto& entry : entries) {
-        if (Utils::FileSystem::exists(entry + "/wireless") &&
-            Utils::FileSystem::exists(entry + "/operstate")) {
-            std::string wifiState;
-            std::ifstream fileStream;
-            fileStream.open(entry + "/operstate");
-            getline(fileStream, wifiState);
-            fileStream.close();
-            if (Utils::String::toLower(wifiState) == "up")
-                hasWifi = true;
-        }
-    }
+    bool hasEthernet {false};
+    probeLinuxNetworkInterfaces("/sys/class/net", hasWifi, hasEthernet);
 #endif
 
     mHasWifi = hasWifi;
+}
+
+void SystemStatus::getStatusEthernet()
+{
+    if (!mCheckEthernet)
+        return;
+
+    bool hasEthernet {false};
+
+#if defined(__linux__) && !defined(__ANDROID__)
+    bool hasWifi {false};
+    probeLinuxNetworkInterfaces("/sys/class/net", hasWifi, hasEthernet);
+#endif
+
+    mHasEthernet = hasEthernet;
+}
+
+void SystemStatus::probeLinuxNetworkInterfaces(const std::string& sysClassNetPath,
+                                               bool& hasWifi,
+                                               bool& hasEthernet)
+{
+    hasWifi = false;
+    hasEthernet = false;
+
+    std::error_code error;
+    for (const auto& entry : std::filesystem::directory_iterator(sysClassNetPath, error)) {
+        if (error)
+            break;
+
+        const std::filesystem::path path {entry.path()};
+        const std::string name {path.filename().string()};
+
+        const auto child = [&path](const char* childName) { return path / childName; };
+        const auto exists = [&child](const char* childName) {
+            std::error_code childError;
+            return std::filesystem::exists(child(childName), childError);
+        };
+        const auto read = [&child](const char* childName) {
+            std::ifstream file {child(childName)};
+            std::string value;
+            std::getline(file, value);
+            return Utils::String::trim(value);
+        };
+
+        // A wireless interface is identified by its sysfs attributes, never by its name.
+        if (exists("wireless") || exists("phy80211")) {
+            if (Utils::String::toLower(read("operstate")) == "up")
+                hasWifi = true;
+            continue;
+        }
+
+        // Only a physical wired interface counts: a device node is required, and bridges, bonds
+        // and tunnels are virtual by construction.
+        if (!exists("device"))
+            continue;
+        if (exists("bridge") || exists("bonding") || exists("tun_flags"))
+            continue;
+        if (name.rfind("bnep", 0) == 0)
+            continue;
+        if (read("type") != "1")
+            continue;
+
+        const std::string operstate {Utils::String::toLower(read("operstate"))};
+        if (operstate == "up" || (operstate == "unknown" && read("carrier") == "1"))
+            hasEthernet = true;
+    }
 }
 
 void SystemStatus::getStatusCellular()

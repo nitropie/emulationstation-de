@@ -183,6 +183,7 @@ void Settings::setDefaults()
     // UI settings -> system status settings.
     mBoolMap["SystemStatusBluetooth"] = {true, true};
     mBoolMap["SystemStatusWifi"] = {true, true};
+    mBoolMap["SystemStatusEthernet"] = {true, true};
     mBoolMap["SystemStatusCellular"] = {true, true};
     mBoolMap["SystemStatusBattery"] = {true, true};
     mBoolMap["SystemStatusBatteryPercentage"] = {true, true};

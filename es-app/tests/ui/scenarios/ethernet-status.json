@@ -1,0 +1,7 @@
+{
+  "runs": 2,
+  "fixture": "favourite",
+  "settings": {
+    "SystemStatusEthernet": "false"
+  }
+}

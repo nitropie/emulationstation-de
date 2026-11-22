@@ -500,6 +500,27 @@ def main():
                 elif wifi.get("expectConfig"):
                     fail(f"{wifi.get('config', 'imperative.conf')} was not written")
 
+            settings_state = {}
+            settings_expectations = expectations.get("settings", {})
+            if settings_expectations:
+                settings_path = os.path.join(appdata, "settings", "es_settings.xml")
+                if not os.path.isfile(settings_path):
+                    fail("the frontend did not write es_settings.xml")
+                # es_settings.xml is a flat list of elements without a root, so it cannot go
+                # through ElementTree. The named boolean is matched directly instead.
+                with open(settings_path, encoding="utf-8", errors="replace") as handle:
+                    settings_text = handle.read()
+                for setting_name, expected_value in settings_expectations.items():
+                    match = re.search(r'<bool\s+name="' + re.escape(setting_name) +
+                                      r'"\s+value="([^"]*)"', settings_text)
+                    if not match:
+                        fail(f"es_settings.xml has no bool {setting_name}")
+                    actual_value = match.group(1)
+                    if actual_value != str(expected_value):
+                        fail(f"es_settings.xml has {setting_name}={actual_value}, "
+                             f"expected {expected_value}")
+                    settings_state[setting_name] = actual_value
+
             files = {}
             for entry in expectations.get("files", []):
                 path = os.path.join(run_dir, entry["path"])
@@ -536,7 +557,8 @@ def main():
                 gamelist_checks = check_gamelist(gamelist, expectations["persisted"])
 
             observed.append({"captures": launch_captures, "files": files,
-                             "persisted": gamelist_checks, "wifi": wifi_state})
+                             "persisted": gamelist_checks, "wifi": wifi_state,
+                             "settings": settings_state})
             print(f"[ui-runner] run {index + 1}/{runs} of {name} passed")
 
         first = observed[0]
@@ -554,6 +576,8 @@ def main():
                 fail(f"{name}: run {index} persisted different values than run 1")
             if run["wifi"] != first["wifi"]:
                 fail(f"{name}: run {index} persisted a different Wi-Fi configuration than run 1")
+            if run["settings"] != first["settings"]:
+                fail(f"{name}: run {index} persisted different settings than run 1")
 
         results[name] = {
             "runs": runs,

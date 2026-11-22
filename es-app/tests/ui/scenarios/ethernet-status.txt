@@ -1,0 +1,76 @@
+# The Ethernet indicator setting is independent of the Wi-Fi backend, so this scenario runs in
+# both WIFI_MANAGER builds.
+wait-text "Super Nintendo Entertainment System" 600
+key escape down
+key escape up
+wait-text "MAIN MENU" 200
+
+# UI SETTINGS is the second main menu entry, above BLUETOOTH and WI-FI.
+controller down down
+controller down up
+controller a down
+controller a up
+wait-text "UI SETTINGS" 200
+wait-text "SYSTEM STATUS SETTINGS" 300
+wait-frames 20
+
+# SYSTEM STATUS SETTINGS is the twentieth row of the UI settings menu.
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller a down
+controller a up
+wait-text "SYSTEM STATUS SETTINGS" 200
+wait-text "DISPLAY ETHERNET STATUS INDICATOR" 300
+capture ethernet-options
+
+# The status switches start with Bluetooth, so Ethernet is the third row.
+controller down down
+controller down up
+controller down down
+controller down up
+controller a down
+controller a up
+wait-frames 30
+capture ethernet-disabled
+
+# Closing the menu saves the setting to es_settings.xml.
+controller b down
+controller b up
+wait-frames 60
+quit

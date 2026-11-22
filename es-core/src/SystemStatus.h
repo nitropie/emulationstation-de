@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <string>
 #include <thread>
 
 class SystemStatus
@@ -28,6 +29,7 @@ public:
     struct Status {
         bool hasBluetooth;
         bool hasWifi;
+        bool hasEthernet;
         bool hasCellular;
         bool hasBattery;
         bool batteryCharging;
@@ -35,6 +37,7 @@ public:
         Status()
             : hasBluetooth {false}
             , hasWifi {false}
+            , hasEthernet {false}
             , hasCellular {false}
             , hasBattery {false}
             , batteryCharging {false}
@@ -44,6 +47,12 @@ public:
     };
 
     Status getStatus(const bool update = true);
+
+    // Probes a sysfs network class directory. This is a Linux layout, but keeping it free of
+    // platform code lets the unit tests exercise every predicate with a synthetic tree.
+    static void probeLinuxNetworkInterfaces(const std::string& sysClassNetPath,
+                                            bool& hasWifi,
+                                            bool& hasEthernet);
 
     static constexpr int updateTime {300};
     static constexpr int pollingTime {2500};
@@ -55,11 +64,13 @@ private:
 
     void getStatusBluetooth();
     void getStatusWifi();
+    void getStatusEthernet();
     void getStatusCellular();
     void getStatusBattery();
 
     bool mCheckBluetooth;
     bool mCheckWifi;
+    bool mCheckEthernet;
     bool mCheckCellular;
     bool mCheckBattery;
 
@@ -72,6 +83,7 @@ private:
 
     std::atomic<bool> mHasBluetooth;
     std::atomic<bool> mHasWifi;
+    std::atomic<bool> mHasEthernet;
     std::atomic<bool> mHasCellular;
     std::atomic<bool> mHasBattery;
     std::atomic<bool> mBatteryCharging;

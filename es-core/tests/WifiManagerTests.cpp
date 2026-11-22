@@ -1,0 +1,642 @@
+//  SPDX-License-Identifier: MIT
+//
+//  ES-DE Frontend
+//  WifiManagerTests.cpp
+//
+//  Test cases for the Wi-Fi manager. The backend tests run the real wpa_supplicant worker on the
+//  session bus against FakeWpaSupplicantServer, with a FIFO in place of /dev/rfkill.
+//
+
+#include "TestHarness.h"
+
+#include "wifi/WifiManager.h"
+
+#include <cstdlib>
+#include <string>
+
+#if !defined(WIFI_MANAGER_WPASUPPLICANT)
+
+TEST_CASE(wifiManagerWithoutABackendIsNull)
+{
+    EXPECT(!WifiManager::hasBackend());
+
+    WifiManager& manager {WifiManager::getInstance()};
+    EXPECT(!manager.isAvailable());
+
+    const std::shared_ptr<const WifiSnapshot> snapshot {manager.getSnapshot()};
+    EXPECT(snapshot != nullptr);
+    EXPECT(!snapshot->available);
+    EXPECT(snapshot->networks.empty());
+
+    // Every action is a safe no-op.
+    manager.setPowered(true);
+    manager.startScan();
+    manager.connect("Cafe");
+    manager.connectWithPassword("Cafe", "correct horse battery");
+    manager.disconnect();
+    manager.forget("Cafe");
+
+    EXPECT(manager.getSequence() >= snapshot->sequence);
+}
+
+#else
+
+#include "FakeWpaSupplicantServer.h"
+#include "Log.h"
+#include "utils/FileSystemUtil.h"
+#include "wifi/WifiState.h"
+
+#include <fcntl.h>
+#include <linux/rfkill.h>
+#include <poll.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <memory>
+#include <sstream>
+#include <thread>
+#include <vector>
+
+std::unique_ptr<WifiManager> createWpaSupplicantWifiManager();
+
+namespace
+{
+    constexpr const char* sInterfacePath {"/fi/w1/wpa_supplicant1/Interfaces/1"};
+    constexpr const char* sP2pInterfacePath {"/fi/w1/wpa_supplicant1/Interfaces/2"};
+    constexpr const char* sCafeBssPath {"/fi/w1/wpa_supplicant1/Interfaces/1/BSSs/1"};
+    constexpr const char* sHomeNetworkPath {"/fi/w1/wpa_supplicant1/Interfaces/1/Networks/0"};
+    constexpr const char* sCafeNetworkPath {"/fi/w1/wpa_supplicant1/Interfaces/1/Networks/9"};
+    constexpr const char* sOpenCafeBssPath {"/fi/w1/wpa_supplicant1/Interfaces/1/BSSs/2"};
+    constexpr const char* sCorrectPassphrase {"correct horse battery"};
+    constexpr const char* sWrongPassphrase {"wrong password"};
+
+    std::string makeTempDirectory()
+    {
+        char pattern[] {"/tmp/es-de-wifi-XXXXXX"};
+        char* directory {mkdtemp(pattern)};
+        return directory == nullptr ? std::string {} : std::string {directory};
+    }
+
+    bool readRfkillEventAt(const int fd, struct rfkill_event& event, const off_t offset)
+    {
+        const auto deadline {std::chrono::steady_clock::now() + std::chrono::seconds {3}};
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (pread(fd, &event, sizeof(event), offset) == static_cast<ssize_t>(sizeof(event)))
+                return true;
+
+            std::this_thread::sleep_for(std::chrono::milliseconds {5});
+        }
+
+        return false;
+    }
+
+    std::string readFile(const std::string& path)
+    {
+        std::ifstream file {path};
+        std::ostringstream contents;
+        contents << file.rdbuf();
+        return contents.str();
+    }
+
+    bool contains(const std::string& text, const std::string& needle)
+    {
+        return text.find(needle) != std::string::npos;
+    }
+
+    bool containsNetwork(const std::shared_ptr<const WifiSnapshot>& snapshot,
+                         const std::string& ssid)
+    {
+        if (snapshot == nullptr)
+            return false;
+
+        for (const WifiNetwork& network : snapshot->networks) {
+            if (network.ssid == ssid)
+                return true;
+        }
+        return false;
+    }
+
+    bool hasSavedNetwork(const std::shared_ptr<const WifiSnapshot>& snapshot,
+                         const std::string& ssid)
+    {
+        if (snapshot == nullptr)
+            return false;
+
+        for (const WifiNetwork& network : snapshot->networks) {
+            if (network.ssid == ssid && network.saved)
+                return true;
+        }
+        return false;
+    }
+
+    bool hasEnabledPath(const FakeWpaSupplicantServer::Calls& calls, const std::string& path)
+    {
+        return std::find(calls.enabledPaths.begin(), calls.enabledPaths.end(), path) !=
+               calls.enabledPaths.end();
+    }
+
+    struct WifiFixture {
+        std::string directory;
+        std::string rfkillPath;
+        std::string configPath;
+        FakeWpaSupplicantServer server;
+        std::unique_ptr<WifiManager> manager;
+        int rfkillFd {-1};
+
+        explicit WifiFixture(const bool regularRfkillFile = false)
+        {
+            directory = makeTempDirectory();
+            rfkillPath = directory + "/rfkill";
+            configPath = directory + "/imperative.conf";
+
+            if (regularRfkillFile) {
+                const int create {open(rfkillPath.c_str(), O_CREAT | O_RDWR, 0600)};
+                if (create >= 0)
+                    close(create);
+                rfkillFd = open(rfkillPath.c_str(), O_RDONLY);
+            }
+            else {
+                mkfifo(rfkillPath.c_str(), 0600);
+                rfkillFd = open(rfkillPath.c_str(), O_RDWR | O_NONBLOCK);
+            }
+
+            setenv("ES_DE_WIFI_DBUS_BUS", "session", 1);
+            setenv("ES_DE_WIFI_RFKILL_PATH", rfkillPath.c_str(), 1);
+            server.setConfigPath(configPath);
+        }
+
+        ~WifiFixture()
+        {
+            manager.reset();
+            server.stop();
+
+            if (rfkillFd >= 0)
+                close(rfkillFd);
+
+            unsetenv("ES_DE_WIFI_DBUS_BUS");
+            unsetenv("ES_DE_WIFI_RFKILL_PATH");
+
+            std::error_code error;
+            std::filesystem::remove_all(directory, error);
+        }
+
+        void addInterfaces()
+        {
+            // The P2P device is listed first on purpose: it must be skipped.
+            server.addInterface(sP2pInterfacePath, "p2p-dev-wlan0");
+            server.addInterface(sInterfacePath, "wlan0");
+        }
+
+        void addCafe()
+        {
+            server.addBss(sCafeBssPath, {"Cafe", -40, 2412, {"WPA-PSK"}});
+            server.setExpectedPassphrase("Cafe", sCorrectPassphrase);
+        }
+
+        void addHome() { server.addSavedNetwork(sHomeNetworkPath, "Home", "WPA-PSK", false); }
+
+        void addSavedCafe() { server.addSavedNetwork(sCafeNetworkPath, "Cafe", "WPA-PSK", true); }
+
+        bool start()
+        {
+            if (!server.start())
+                return false;
+
+            manager = createWpaSupplicantWifiManager();
+            return manager != nullptr;
+        }
+
+        std::shared_ptr<const WifiSnapshot> snapshot() const { return manager->getSnapshot(); }
+    };
+
+} // namespace
+
+TEST_CASE(wifiInterfaceDiscoverySkipsP2pDevices)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+
+    const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+    EXPECT(snapshot->interfaceName == "wlan0");
+    EXPECT(snapshot->interfacePath == sInterfacePath);
+    EXPECT(snapshot->networks.size() == 1);
+    if (snapshot->networks.size() == 1) {
+        EXPECT(snapshot->networks.front().ssid == "Cafe");
+        EXPECT(snapshot->networks.front().rssi == -40);
+        EXPECT(snapshot->networks.front().signal == 100);
+        EXPECT(snapshot->networks.front().security == WifiSecurity::personal);
+        EXPECT(snapshot->networks.front().preferredKeyMgmt == WifiKeyMgmt::wpaPsk);
+    }
+}
+
+TEST_CASE(wifiRfkillPowerWritesEventsAndScans)
+{
+    // A regular file gives the test its own read offset, so the manager cannot consume the event
+    // through its own watch descriptor.
+    WifiFixture fixture {true};
+    fixture.addInterfaces();
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+    EXPECT(fixture.rfkillFd >= 0);
+
+    fixture.manager->setPowered(false);
+
+    struct rfkill_event event {};
+    EXPECT(readRfkillEventAt(fixture.rfkillFd, event, 0));
+    EXPECT(event.type == RFKILL_TYPE_WLAN);
+    EXPECT(event.op == RFKILL_OP_CHANGE_ALL);
+    EXPECT(event.soft == 1);
+    EXPECT(event.hard == 0);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] { return !fixture.snapshot()->powered; }));
+
+    fixture.manager->setPowered(true);
+
+    EXPECT(readRfkillEventAt(fixture.rfkillFd, event, sizeof(event)));
+    EXPECT(event.type == RFKILL_TYPE_WLAN);
+    EXPECT(event.soft == 0);
+
+    // Unblocking the radio triggers a scan once the interface is back.
+    EXPECT(
+        FakeWpaSupplicantServer::waitFor([&fixture] { return fixture.server.calls().scan >= 1; }));
+}
+
+TEST_CASE(wifiScanPublishesAccessPoints)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+
+    fixture.manager->startScan();
+
+    EXPECT(
+        FakeWpaSupplicantServer::waitFor([&fixture] { return fixture.server.calls().scan == 1; }));
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return containsNetwork(fixture.snapshot(), "Cafe"); }));
+
+    for (const WifiNetwork& network : fixture.snapshot()->networks) {
+        if (network.ssid != "Cafe")
+            continue;
+        EXPECT(network.signal == 100);
+        EXPECT(network.security == WifiSecurity::personal);
+        EXPECT(!network.saved);
+    }
+}
+
+TEST_CASE(wifiConnectWithPasswordSucceedsAndSaves)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.addHome();
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        return fixture.snapshot() != nullptr && fixture.snapshot()->available &&
+               containsNetwork(fixture.snapshot(), "Home");
+    }));
+
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe";
+    }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.addNetwork == 1);
+    EXPECT(calls.selectNetwork == 1);
+    EXPECT(calls.addedSsids.size() == 1);
+    if (calls.addedSsids.size() == 1)
+        EXPECT(calls.addedSsids.front() == "Cafe");
+
+    // The other saved network is re-enabled and the configuration is saved.
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return hasEnabledPath(fixture.server.calls(), sHomeNetworkPath); }));
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().saveConfig >= 1; }));
+
+    struct stat status {};
+    EXPECT(stat(fixture.configPath.c_str(), &status) == 0);
+    EXPECT((status.st_mode & 0777) == 0600);
+
+    const std::string config {readFile(fixture.configPath)};
+    EXPECT(contains(config, "Cafe"));
+    EXPECT(contains(config, sCorrectPassphrase));
+}
+
+TEST_CASE(wifiWrongPasswordRollsBack)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.addHome();
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        return fixture.snapshot() != nullptr && fixture.snapshot()->available &&
+               containsNetwork(fixture.snapshot(), "Home");
+    }));
+
+    fixture.manager->connectWithPassword("Cafe", sWrongPassphrase);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && !snapshot->lastError.empty();
+    }));
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        return fixture.server.calls().removeNetwork >= 1 && fixture.server.calls().reconnect >= 1;
+    }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.addNetwork == 1);
+    EXPECT(calls.selectNetwork == 1);
+
+    // The block that AddNetwork created is removed again.
+    EXPECT(calls.removedPaths.size() == 1);
+    if (calls.removedPaths.size() == 1)
+        EXPECT(contains(calls.removedPaths.front(), "/Networks/"));
+
+    // The other saved network is re-enabled and nothing is persisted.
+    EXPECT(hasEnabledPath(calls, sHomeNetworkPath));
+    EXPECT(calls.saveConfig == 0);
+
+    const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+    EXPECT(!snapshot->lastError.empty());
+    EXPECT(!contains(snapshot->lastError, sWrongPassphrase));
+
+    std::error_code error;
+    if (std::filesystem::exists(fixture.configPath)) {
+        const std::string config {readFile(fixture.configPath)};
+        EXPECT(!contains(config, "Cafe"));
+    }
+}
+
+TEST_CASE(wifiInvalidPassphraseFailsBeforeDbus)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+
+    fixture.manager->connectWithPassword("Cafe", "short");
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->lastError == WifiState::passphraseError();
+    }));
+
+    EXPECT(fixture.server.calls().addNetwork == 0);
+    EXPECT(fixture.server.calls().selectNetwork == 0);
+}
+
+TEST_CASE(wifiConnectToUnsavedOpenNetwork)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.server.addBss(sOpenCafeBssPath, {"OpenCafe", -45, 2412, {"NONE"}});
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        return fixture.snapshot() != nullptr && fixture.snapshot()->available &&
+               containsNetwork(fixture.snapshot(), "OpenCafe");
+    }));
+
+    // An unsaved open network has no Network object, but connect() must still create one.
+    fixture.manager->connect("OpenCafe");
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "OpenCafe";
+    }));
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().saveConfig >= 1; }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.addNetwork == 1);
+    EXPECT(calls.selectNetwork == 1);
+    EXPECT(calls.addedSsids.size() == 1);
+    if (calls.addedSsids.size() == 1)
+        EXPECT(calls.addedSsids.front() == "OpenCafe");
+    EXPECT(calls.addedKeyMgmt.size() == 1);
+    if (calls.addedKeyMgmt.size() == 1)
+        EXPECT(calls.addedKeyMgmt.front() == "NONE");
+
+    const std::string config {readFile(fixture.configPath)};
+    EXPECT(contains(config, "OpenCafe"));
+}
+
+TEST_CASE(wifiPreConnectedStartupSyncsActiveSsid)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.addSavedCafe();
+    fixture.server.setConnectedState(sCafeNetworkPath, sCafeBssPath);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->available && snapshot->connected &&
+               snapshot->activeSsid == "Cafe";
+    }));
+
+    const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+    for (const WifiNetwork& network : snapshot->networks) {
+        if (network.ssid == "Cafe")
+            EXPECT(network.connected);
+    }
+
+    fixture.manager->disconnect();
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> current {fixture.snapshot()};
+        return current != nullptr && current->activeSsid.empty();
+    }));
+    EXPECT(!fixture.snapshot()->connected);
+}
+
+TEST_CASE(wifiRfkillEventsUpdateTheSnapshot)
+{
+    // The FIFO is read by the manager's watch descriptor. Only the test writes here, so no event
+    // is lost to a competing reader.
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+    EXPECT(fixture.rfkillFd >= 0);
+
+    struct rfkill_event event {};
+    event.op = RFKILL_OP_CHANGE_ALL;
+    event.type = RFKILL_TYPE_WLAN;
+    event.soft = 1;
+    event.hard = 0;
+    EXPECT(write(fixture.rfkillFd, &event, sizeof(event)) == static_cast<ssize_t>(sizeof(event)));
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] { return !fixture.snapshot()->powered; }));
+
+    event.soft = 0;
+    event.hard = 1;
+    EXPECT(write(fixture.rfkillFd, &event, sizeof(event)) == static_cast<ssize_t>(sizeof(event)));
+
+    EXPECT(
+        FakeWpaSupplicantServer::waitFor([&fixture] { return fixture.snapshot()->hardBlocked; }));
+    EXPECT(fixture.snapshot()->powered);
+
+    event.soft = 0;
+    event.hard = 0;
+    EXPECT(write(fixture.rfkillFd, &event, sizeof(event)) == static_cast<ssize_t>(sizeof(event)));
+
+    EXPECT(
+        FakeWpaSupplicantServer::waitFor([&fixture] { return !fixture.snapshot()->hardBlocked; }));
+}
+
+TEST_CASE(wifiDisconnectAndForget)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe";
+    }));
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().saveConfig >= 1; }));
+
+    // The configuration exists and contains the network before forget, so the check after it is
+    // not vacuous.
+    const std::string before {readFile(fixture.configPath)};
+    EXPECT(contains(before, "Cafe"));
+
+    const int savesBefore {fixture.server.calls().saveConfig};
+
+    fixture.manager->disconnect();
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && !snapshot->connected && snapshot->activeSsid.empty();
+    }));
+
+    fixture.manager->forget("Cafe");
+
+    // The access point is still visible after forget, but it is no longer saved.
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return !hasSavedNetwork(fixture.snapshot(), "Cafe"); }));
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture, savesBefore] { return fixture.server.calls().saveConfig > savesBefore; }));
+
+    const std::string after {readFile(fixture.configPath)};
+    EXPECT(!contains(after, "Cafe"));
+}
+
+TEST_CASE(wifiDaemonRestartRecovers)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+
+    fixture.server.releaseService();
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] { return !fixture.snapshot()->available; }));
+
+    fixture.server.acquireService();
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->available && snapshot->interfaceName == "wlan0";
+    }));
+}
+
+TEST_CASE(wifiPassphraseNeverReachesTheLog)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.addHome();
+
+    // getAppDataDirectory() may already be cached by an earlier test, so the log is read from
+    // wherever it resolves to rather than from the fixture directory.
+    const std::string logDirectory {Utils::FileSystem::getAppDataDirectory() + "/logs"};
+    std::filesystem::create_directories(logDirectory);
+    Log::init();
+    Log::open();
+    Log::setReportingLevel(LogDebug);
+
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+
+    fixture.manager->connectWithPassword("Cafe", sWrongPassphrase);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && !snapshot->lastError.empty();
+    }));
+
+    Log::flush();
+    Log::close();
+
+    const std::string log {readFile(logDirectory + "/es_log.txt")};
+    EXPECT(!log.empty());
+    EXPECT(contains(log, "Cafe"));
+    EXPECT(!contains(log, sWrongPassphrase));
+    EXPECT(!contains(log, sCorrectPassphrase));
+}
+
+#endif // WIFI_MANAGER_WPASUPPLICANT

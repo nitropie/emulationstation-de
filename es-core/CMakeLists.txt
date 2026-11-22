@@ -234,7 +234,8 @@ endif()
 
 if(WIFI_MANAGER)
     set(CORE_SOURCES ${CORE_SOURCES}
-                     ${CMAKE_CURRENT_SOURCE_DIR}/src/wifi/WifiMessageParser.cpp)
+                     ${CMAKE_CURRENT_SOURCE_DIR}/src/wifi/WifiMessageParser.cpp
+                     ${CMAKE_CURRENT_SOURCE_DIR}/src/wifi/WifiManagerWpaSupplicant.cpp)
 endif()
 
 if(BLUETOOTH_MANAGER OR WIFI_MANAGER)
@@ -284,6 +285,8 @@ if(BUILD_TESTS)
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/BluetoothManagerTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/BluetoothMessageParserTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/BluetoothStateTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/FakeWpaSupplicantServer.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/WifiManagerTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/WifiMessageParserTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/WifiStateTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/StringUtilTests.cpp)

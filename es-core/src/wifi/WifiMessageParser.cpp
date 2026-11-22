@@ -35,14 +35,16 @@ namespace WifiMessageParser
         }
 
         // Reads an "as".
-        bool readStringArray(sd_bus_message* message, std::vector<std::string>& strings)
+        bool readStringArray(sd_bus_message* message,
+                             std::vector<std::string>& strings,
+                             const char* elementType = "s")
         {
-            if (sd_bus_message_enter_container(message, SD_BUS_TYPE_ARRAY, "s") < 0)
+            if (sd_bus_message_enter_container(message, SD_BUS_TYPE_ARRAY, elementType) < 0)
                 return false;
 
             const char* text {nullptr};
             int result {0};
-            while ((result = sd_bus_message_read(message, "s", &text)) > 0)
+            while ((result = sd_bus_message_read(message, elementType, &text)) > 0)
                 strings.emplace_back(text);
 
             if (result < 0)
@@ -204,6 +206,13 @@ namespace WifiMessageParser
                         if (!readStringArray(message, strings))
                             return false;
                         value = std::move(strings);
+                        return true;
+                    }
+                    if (signature == "o") {
+                        std::vector<std::string> paths;
+                        if (!readStringArray(message, paths, "o"))
+                            return false;
+                        value = std::move(paths);
                         return true;
                     }
                     if (signature == "{sv}") {

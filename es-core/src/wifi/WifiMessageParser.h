@@ -27,8 +27,9 @@
 
 // A D-Bus property reduced to the value types that the wpa_supplicant interfaces use. All signed
 // integers are reduced to std::int64_t and all unsigned ones to std::uint64_t. An array of bytes
-// is reduced to a vector, so that an SSID or a BSSID with a NUL byte keeps its length. The nested
-// WPA and RSN dictionaries are reduced to their string arrays, which is where KeyMgmt lives.
+// is reduced to a vector, so that an SSID or a BSSID with a NUL byte keeps its length. String
+// arrays, including arrays of object paths, are reduced to a vector of strings. The nested WPA and
+// RSN dictionaries are reduced to their string arrays, which is where KeyMgmt lives.
 using WifiPropertyValue = std::variant<bool,
                                        std::int64_t,
                                        std::uint64_t,

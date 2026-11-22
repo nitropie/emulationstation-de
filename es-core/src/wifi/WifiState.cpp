@@ -156,6 +156,38 @@ void WifiState::clear()
     mLastError.clear();
 }
 
+std::vector<std::string> WifiState::savedNetworkPaths(const std::string& ssid) const
+{
+    std::vector<std::string> paths;
+    for (const auto& network : mNetworks) {
+        if (network.second.ssid == ssid)
+            paths.push_back(network.first);
+    }
+
+    return paths;
+}
+
+std::vector<std::string> WifiState::allNetworkPaths() const
+{
+    std::vector<std::string> paths;
+    for (const auto& network : mNetworks)
+        paths.push_back(network.first);
+
+    return paths;
+}
+
+std::string WifiState::ssidForBssPath(const std::string& path) const
+{
+    const auto bss {mBss.find(path)};
+    return bss == mBss.end() ? std::string {} : bss->second.ssid;
+}
+
+std::string WifiState::ssidForNetworkPath(const std::string& path) const
+{
+    const auto network {mNetworks.find(path)};
+    return network == mNetworks.end() ? std::string {} : network->second.ssid;
+}
+
 WifiSnapshot WifiState::toSnapshot(const std::uint64_t sequence) const
 {
     WifiSnapshot snapshot;

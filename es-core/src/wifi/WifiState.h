@@ -73,6 +73,17 @@ public:
     void clearPending(const std::string& ssid);
     void setLastError(const std::string& error);
 
+    // The object paths of the saved Network objects with this SSID. wpa_supplicant can hold more
+    // than one after a failed connection attempt, which is what the connect path cleans up.
+    std::vector<std::string> savedNetworkPaths(const std::string& ssid) const;
+
+    // The object paths of every saved Network object.
+    std::vector<std::string> allNetworkPaths() const;
+
+    // The SSID behind a BSS or Network object path, empty when the path is unknown.
+    std::string ssidForBssPath(const std::string& path) const;
+    std::string ssidForNetworkPath(const std::string& path) const;
+
     // Forgets every object, used when wpa_supplicant leaves the bus.
     void clear();
 

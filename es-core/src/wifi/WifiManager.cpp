@@ -44,10 +44,11 @@ namespace
     // The backend is chosen here, at build time.
     std::unique_ptr<WifiManager> createWifiManager()
     {
-        // WIFI_MANAGER_WPASUPPLICANT keeps the interface, the reducer and the message parser
-        // available to test builds before the worker that speaks to wpa_supplicant is added. Once
-        // createWpaSupplicantWifiManager() exists this branch returns it instead.
+#if defined(WIFI_MANAGER_WPASUPPLICANT)
+        return createWpaSupplicantWifiManager();
+#else
         return std::make_unique<NullWifiManager>();
+#endif
     }
 
 } // namespace

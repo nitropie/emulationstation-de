@@ -53,11 +53,20 @@ namespace WifiMessageParser
             return sd_bus_message_exit_container(message) >= 0;
         }
 
-        // Reads the nested WPA and RSN "a{sv}" dictionaries. Only the string arrays are kept, which
-        // is where KeyMgmt and PairwiseCiphers live; every other value type is skipped without
-        // losing the position in the dictionary.
-        bool readNestedProperties(sd_bus_message* message,
-                                  std::map<std::string, std::vector<std::string>>& properties)
+        // The values of a nested "a{sv}" dictionary. The WPA and RSN information elements carry
+        // string arrays, which is where KeyMgmt and PairwiseCiphers live, while a Network
+        // Properties dictionary carries plain strings.
+        struct NestedProperties {
+            std::map<std::string, std::vector<std::string>> arrays;
+            std::map<std::string, std::string> strings;
+            bool hasArrays {false};
+        };
+
+        // Reads a nested "a{sv}" dictionary. When at least one string array is present the
+        // dictionary is reduced to its arrays only, which preserves the existing WPA and RSN
+        // reduction and drops the scalar GroupCipher; a dictionary without arrays is reduced to
+        // its string values.
+        bool readNestedProperties(sd_bus_message* message, NestedProperties& properties)
         {
             if (sd_bus_message_enter_container(message, SD_BUS_TYPE_ARRAY, "{sv}") < 0)
                 return false;
@@ -83,7 +92,14 @@ namespace WifiMessageParser
                         std::vector<std::string> values;
                         if (!readStringArray(message, values))
                             return false;
-                        properties[name] = std::move(values);
+                        properties.arrays[name] = std::move(values);
+                        properties.hasArrays = true;
+                    }
+                    else if (contents != nullptr && std::string {contents} == "s") {
+                        const char* text {nullptr};
+                        if (sd_bus_message_read(message, "s", &text) < 0)
+                            return false;
+                        properties.strings[name] = text;
                     }
                     else if (sd_bus_message_skip(message, nullptr) < 0) {
                         return false;
@@ -216,10 +232,13 @@ namespace WifiMessageParser
                         return true;
                     }
                     if (signature == "{sv}") {
-                        std::map<std::string, std::vector<std::string>> nested;
+                        NestedProperties nested;
                         if (!readNestedProperties(message, nested))
                             return false;
-                        value = std::move(nested);
+                        if (nested.hasArrays)
+                            value = std::move(nested.arrays);
+                        else
+                            value = std::move(nested.strings);
                         return true;
                     }
                     return false;
@@ -469,14 +488,35 @@ namespace WifiMessageParser
 
     void applyNetworkProperties(const WifiProperties& properties, WifiSavedNetwork& network)
     {
-        applySsid(properties, network.ssid);
+        // A NetworkAdded signal wraps the configuration in {"Properties": a{sv}, "Enabled": b},
+        // where every value of the inner dictionary is a string, and a Network Properties.GetAll
+        // reply has the same shape. A flat Properties dictionary is accepted as well.
+        WifiProperties flat;
+        const WifiProperties* source {&properties};
+
+        const auto wrapped {properties.find("Properties")};
+        if (wrapped != properties.end()) {
+            if (const auto inner {std::get_if<WifiStringProperties>(&wrapped->second)};
+                inner != nullptr) {
+                for (const auto& [name, value] : *inner)
+                    flat[name] = value;
+
+                const auto enabled {properties.find("Enabled")};
+                if (enabled != properties.end())
+                    flat["Enabled"] = enabled->second;
+
+                source = &flat;
+            }
+        }
+
+        applySsid(*source, network.ssid);
 
         std::string keyMgmt;
-        if (getString(properties, "key_mgmt", keyMgmt)) {
+        if (getString(*source, "key_mgmt", keyMgmt)) {
             network.keyMgmt = keyMgmt;
         }
         else {
-            const WifiPropertyValue* value {findProperty(properties, "key_mgmt")};
+            const WifiPropertyValue* value {findProperty(*source, "key_mgmt")};
             if (value != nullptr) {
                 if (const auto list {std::get_if<std::vector<std::string>>(value)};
                     list != nullptr && !list->empty())
@@ -484,12 +524,15 @@ namespace WifiMessageParser
             }
         }
 
-        // wpa_supplicant reports the state of a Network either as "disabled" in the Properties
-        // dictionary or as the "Enabled" property of the interface.
+        // wpa_supplicant reports the state of a Network as "disabled" in the Properties
+        // dictionary, a string "0" or "1" from wpa_config_get_all or a bool from the fake, and
+        // as the "Enabled" property of the interface.
         bool flag {false};
-        if (getBoolean(properties, "disabled", flag))
+        if (getBoolean(*source, "disabled", flag))
             network.enabled = !flag;
-        else if (getBoolean(properties, "Enabled", flag))
+        else if (std::string disabled; getString(*source, "disabled", disabled))
+            network.enabled = disabled == "0";
+        else if (getBoolean(*source, "Enabled", flag))
             network.enabled = flag;
     }
 

@@ -97,23 +97,6 @@ namespace
         });
     }
 
-    // wpa_supplicant accepts a passphrase either as a quoted string, with a backslash before a
-    // quote or another backslash, or as the 64 hexadecimal digits of the raw key.
-    std::string encodePassphrase(const std::string& passphrase)
-    {
-        if (isHexadecimal(passphrase))
-            return passphrase;
-
-        std::string encoded {"\""};
-        for (const char character : passphrase) {
-            if (character == '"' || character == '\\')
-                encoded.push_back('\\');
-            encoded.push_back(character);
-        }
-        encoded.push_back('"');
-        return encoded;
-    }
-
     // The IPv4 address of an interface, empty when it does not have one yet.
     std::string findIpv4Address(const std::string& interfaceName)
     {
@@ -272,17 +255,6 @@ namespace
         return sd_bus_message_exit_container(message) >= 0;
     }
 
-    bool readVariantProperties(sd_bus_message* message, WifiProperties& properties)
-    {
-        if (!enterVariant(message))
-            return false;
-
-        if (!WifiMessageParser::readProperties(message, properties))
-            return false;
-
-        return sd_bus_message_exit_container(message) >= 0;
-    }
-
     bool appendStringProperty(sd_bus_message* message, const char* name, const char* value)
     {
         if (sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv") < 0)
@@ -292,6 +264,31 @@ namespace
         if (sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "s") < 0)
             return false;
         if (sd_bus_message_append(message, "s", value) < 0)
+            return false;
+        if (sd_bus_message_close_container(message) < 0)
+            return false;
+
+        return sd_bus_message_close_container(message) >= 0;
+    }
+
+    bool appendByteArrayProperty(sd_bus_message* message,
+                                 const char* name,
+                                 const std::uint8_t* bytes,
+                                 const std::size_t size)
+    {
+        if (sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv") < 0)
+            return false;
+        if (sd_bus_message_append(message, "s", name) < 0)
+            return false;
+        if (sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "ay") < 0)
+            return false;
+        if (sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "y") < 0)
+            return false;
+        for (std::size_t index {0}; index < size; ++index) {
+            if (sd_bus_message_append(message, "y", bytes[index]) < 0)
+                return false;
+        }
+        if (sd_bus_message_close_container(message) < 0)
             return false;
         if (sd_bus_message_close_container(message) < 0)
             return false;
@@ -638,12 +635,15 @@ namespace
                                      const char* interfaceName,
                                      const Step step)
         {
+            // A BSS has no "Properties" property; its properties are individual entries that
+            // GetAll returns together. A Network keeps "Properties" and "Enabled", which GetAll
+            // also returns.
             sd_bus_message* message {nullptr};
             if (sd_bus_message_new_method_call(mBus, &message, sService, path.c_str(),
-                                               sPropertiesInterface, "Get") < 0)
+                                               sPropertiesInterface, "GetAll") < 0)
                 return;
 
-            sd_bus_message_append(message, "ss", interfaceName, "Properties");
+            sd_bus_message_append(message, "s", interfaceName);
             send(message, step, mEpoch, 0, path, std::string {});
         }
 
@@ -696,7 +696,9 @@ namespace
                 return;
             }
 
+            // wpas_dbus_handler_scan requires a Type entry and rejects an empty dictionary.
             sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
+            appendStringProperty(message, "Type", "active");
             sd_bus_message_close_container(message);
             send(message, Step::scan, mEpoch, 0, mInterfacePath, std::string {});
         }
@@ -821,6 +823,38 @@ namespace
                  mAttempt.ssid);
         }
 
+        // A passphrase is either 8..63 printable ASCII characters, sent as an unquoted string
+        // that wpa_supplicant quotes, or the 64 hexadecimal digits of the raw key, sent as the 32
+        // raw bytes because the quoted string form would be rejected for its length. The
+        // temporary key bytes are zeroed once the message owns its copy.
+        void appendPassphraseProperty(sd_bus_message* message)
+        {
+            if (mAttempt.passphrase.empty())
+                return;
+
+            if (!isHexadecimal(mAttempt.passphrase)) {
+                appendStringProperty(message, "psk", mAttempt.passphrase.c_str());
+                return;
+            }
+
+            std::vector<std::uint8_t> key;
+            key.reserve(32);
+            for (std::size_t index {0}; index + 1 < mAttempt.passphrase.size(); index += 2) {
+                const auto high {static_cast<std::uint8_t>(mAttempt.passphrase[index])};
+                const auto low {static_cast<std::uint8_t>(mAttempt.passphrase[index + 1])};
+                const auto value = [](const std::uint8_t digit) -> std::uint8_t {
+                    return digit >= '0' && digit <= '9' ? digit - '0' :
+                           digit >= 'a' && digit <= 'f' ? digit - 'a' + 10 :
+                           digit >= 'A' && digit <= 'F' ? digit - 'A' + 10 :
+                                                          0;
+                };
+                key.push_back(static_cast<std::uint8_t>(value(high) * 16 + value(low)));
+            }
+
+            appendByteArrayProperty(message, "psk", key.data(), key.size());
+            std::fill(key.begin(), key.end(), std::uint8_t {0});
+        }
+
         void addNetworkForAttempt()
         {
             if (!mAttempt.active)
@@ -841,8 +875,14 @@ namespace
 
             sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
 
-            const std::string encodedSsid {WifiState::encodeSsid(mAttempt.ssid)};
-            appendStringProperty(message, "ssid", encodedSsid.c_str());
+            // The SSID is raw bytes. Upstream wraps a DBUS_TYPE_STRING value for "ssid" in double
+            // quotes itself, which mangles every SSID that contains a quote, a backslash or a
+            // byte outside printable ASCII.
+            if (!mAttempt.ssid.empty()) {
+                appendByteArrayProperty(message, "ssid",
+                                        reinterpret_cast<const std::uint8_t*>(mAttempt.ssid.data()),
+                                        mAttempt.ssid.size());
+            }
 
             if (security == WifiSecurity::open) {
                 appendStringProperty(message, "key_mgmt", "NONE");
@@ -850,15 +890,11 @@ namespace
             else if (keyMgmt == WifiKeyMgmt::sae) {
                 appendStringProperty(message, "key_mgmt", "SAE");
                 appendUint32Property(message, "ieee80211w", 2);
-                std::string psk {encodePassphrase(mAttempt.passphrase)};
-                appendStringProperty(message, "psk", psk.c_str());
-                std::fill(psk.begin(), psk.end(), '\0');
+                appendPassphraseProperty(message);
             }
             else {
                 appendStringProperty(message, "key_mgmt", "WPA-PSK");
-                std::string psk {encodePassphrase(mAttempt.passphrase)};
-                appendStringProperty(message, "psk", psk.c_str());
-                std::fill(psk.begin(), psk.end(), '\0');
+                appendPassphraseProperty(message);
             }
 
             sd_bus_message_close_container(message);
@@ -1291,8 +1327,9 @@ namespace
 
         void handleBssProperties(sd_bus_message* message, const FollowUp& followUp)
         {
+            // Properties.GetAll returns the dictionary directly, not wrapped in a variant.
             WifiProperties properties;
-            if (!readVariantProperties(message, properties))
+            if (!WifiMessageParser::readProperties(message, properties))
                 return;
 
             applyBss(followUp.path, properties);
@@ -1303,7 +1340,7 @@ namespace
         void handleNetworkProperties(sd_bus_message* message, const FollowUp& followUp)
         {
             WifiProperties properties;
-            if (!readVariantProperties(message, properties))
+            if (!WifiMessageParser::readProperties(message, properties))
                 return;
 
             applyNetwork(followUp.path, properties);

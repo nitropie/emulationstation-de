@@ -41,6 +41,7 @@ public:
         std::int16_t signal {-50};
         std::uint16_t frequency {2412};
         std::vector<std::string> keyMgmt {"WPA-PSK"};
+        std::vector<std::uint8_t> bssid {0x02, 0x00, 0x00, 0x00, 0x00, 0x01};
     };
 
     // Everything the manager asked the service to do, for the assertions.
@@ -120,7 +121,6 @@ private:
 
     void writeConfig();
     void selectNetwork(const std::string& path);
-    static std::string unquote(const std::string& text);
     static std::string pathForNetwork(const std::string& ssid);
 
     static int onRootProperty(sd_bus* bus,

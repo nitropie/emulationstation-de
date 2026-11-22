@@ -118,7 +118,7 @@ public:
     // The message for a rejected passphrase. It never contains the attempted value.
     static std::string passphraseError();
 
-    // Turns an error name and message, normally fi.w1.wpa_supplicant1.Error.*, into a message for
+    // Turns an error name and message, normally a fi.w1.wpa_supplicant1.* name, into a message for
     // the user. A known name always maps to a fixed description that does not repeat the D-Bus
     // message, so a diagnostic string can never echo a credential.
     static std::string describeError(const std::string& errorName, const std::string& message);

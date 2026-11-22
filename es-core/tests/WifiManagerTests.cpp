@@ -50,6 +50,7 @@ TEST_CASE(wifiManagerWithoutABackendIsNull)
 #include <linux/rfkill.h>
 #include <poll.h>
 #include <sys/stat.h>
+#include <systemd/sd-bus.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -138,6 +139,75 @@ namespace
     {
         return std::find(calls.enabledPaths.begin(), calls.enabledPaths.end(), path) !=
                calls.enabledPaths.end();
+    }
+
+    // The direct wire-contract tests talk to the fake server without the manager, so that the
+    // old payloads can be sent exactly as the buggy client sent them.
+    sd_bus* openSessionBus()
+    {
+        sd_bus* bus {nullptr};
+        if (sd_bus_open_user(&bus) < 0)
+            return nullptr;
+
+        return bus;
+    }
+
+    sd_bus_message* newInterfaceCall(sd_bus* bus, const char* member)
+    {
+        sd_bus_message* call {nullptr};
+        if (sd_bus_message_new_method_call(bus, &call, "fi.w1.wpa_supplicant1", sInterfacePath,
+                                           "fi.w1.wpa_supplicant1.Interface", member) < 0)
+            return nullptr;
+
+        if (sd_bus_message_open_container(call, SD_BUS_TYPE_ARRAY, "{sv}") < 0) {
+            sd_bus_message_unref(call);
+            return nullptr;
+        }
+
+        return call;
+    }
+
+    void appendStringEntry(sd_bus_message* message, const char* name, const char* value)
+    {
+        sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv");
+        sd_bus_message_append(message, "s", name);
+        sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "s");
+        sd_bus_message_append(message, "s", value);
+        sd_bus_message_close_container(message);
+        sd_bus_message_close_container(message);
+    }
+
+    void appendByteArrayEntry(sd_bus_message* message, const char* name, const std::string& text)
+    {
+        sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv");
+        sd_bus_message_append(message, "s", name);
+        sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "ay");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "y");
+        for (const char character : text)
+            sd_bus_message_append(message, "y", static_cast<unsigned char>(character));
+        sd_bus_message_close_container(message);
+        sd_bus_message_close_container(message);
+        sd_bus_message_close_container(message);
+    }
+
+    std::string callErrorName(sd_bus* bus, sd_bus_message* call)
+    {
+        if (call == nullptr)
+            return std::string {"<no-call>"};
+
+        sd_bus_error error = SD_BUS_ERROR_NULL;
+        sd_bus_message* reply {nullptr};
+        const int result {sd_bus_call(bus, call, 0, &error, &reply)};
+
+        std::string name;
+        if (result < 0)
+            name = error.name == nullptr ? std::string {} : std::string {error.name};
+
+        sd_bus_error_free(&error);
+        if (reply != nullptr)
+            sd_bus_message_unref(reply);
+        sd_bus_message_unref(call);
+        return name;
     }
 
     struct WifiFixture {
@@ -576,6 +646,142 @@ TEST_CASE(wifiDisconnectAndForget)
 
     const std::string after {readFile(fixture.configPath)};
     EXPECT(!contains(after, "Cafe"));
+}
+
+TEST_CASE(wifiUtf8SsidRoundTripsThroughTheWire)
+{
+    // A UTF-8 SSID with a quote in it is the case that the double quoting used to mangle.
+    const std::string ssid {"Caf\xc3\xa9 \"Test\""};
+
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.server.addBss(sCafeBssPath, {ssid, -42, 2412, {"WPA-PSK"}});
+    fixture.server.setExpectedPassphrase(ssid, sCorrectPassphrase);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture, &ssid] {
+        return fixture.snapshot() != nullptr && fixture.snapshot()->available &&
+               containsNetwork(fixture.snapshot(), ssid);
+    }));
+
+    fixture.manager->connectWithPassword(ssid, sCorrectPassphrase);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture, &ssid] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == ssid;
+    }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.addedSsids.size() == 1);
+    if (calls.addedSsids.size() == 1)
+        EXPECT(calls.addedSsids.front() == ssid);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().saveConfig >= 1; }));
+    EXPECT(contains(readFile(fixture.configPath), ssid));
+
+    fixture.manager->disconnect();
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && !snapshot->connected;
+    }));
+
+    const int savesBefore {fixture.server.calls().saveConfig};
+    fixture.manager->forget(ssid);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture, &ssid] { return !hasSavedNetwork(fixture.snapshot(), ssid); }));
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture, savesBefore] { return fixture.server.calls().saveConfig > savesBefore; }));
+    EXPECT(!contains(readFile(fixture.configPath), ssid));
+}
+
+TEST_CASE(wifiRawHexPskConnectsAndSaves)
+{
+    const std::string rawKey {"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"};
+
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.server.setExpectedPassphrase("Cafe", rawKey);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        return fixture.snapshot() != nullptr && fixture.snapshot()->available &&
+               containsNetwork(fixture.snapshot(), "Cafe");
+    }));
+
+    fixture.manager->connectWithPassword("Cafe", rawKey);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe";
+    }));
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().saveConfig >= 1; }));
+
+    // A raw key is persisted as 64 hexadecimal digits, without quotes.
+    EXPECT(contains(readFile(fixture.configPath), "psk=" + rawKey));
+}
+
+TEST_CASE(wifiFakeServerRejectsTheOldWirePayloads)
+{
+    FakeWpaSupplicantServer server;
+    server.addInterface(sInterfacePath, "wlan0");
+    server.addBss(sCafeBssPath, {"Cafe", -40, 2412, {"WPA-PSK"}});
+    const bool started {server.start()};
+    EXPECT(started);
+    if (!started)
+        return;
+
+    sd_bus* bus {openSessionBus()};
+    EXPECT(bus != nullptr);
+    if (bus == nullptr) {
+        server.stop();
+        return;
+    }
+
+    // Scan without the Type entry, which is what the manager used to send.
+    sd_bus_message* scan {newInterfaceCall(bus, "Scan")};
+    sd_bus_message_close_container(scan);
+    EXPECT(callErrorName(bus, scan) == "fi.w1.wpa_supplicant1.InvalidArgs");
+
+    // An ssid that is already wrapped in quotes.
+    sd_bus_message* quotedSsid {newInterfaceCall(bus, "AddNetwork")};
+    appendStringEntry(quotedSsid, "ssid", "\"Cafe\"");
+    sd_bus_message_close_container(quotedSsid);
+    EXPECT(callErrorName(bus, quotedSsid) == "fi.w1.wpa_supplicant1.InvalidArgs");
+
+    // A passphrase that is already wrapped in quotes.
+    sd_bus_message* quotedPsk {newInterfaceCall(bus, "AddNetwork")};
+    appendByteArrayEntry(quotedPsk, "ssid", "Cafe");
+    appendStringEntry(quotedPsk, "psk", "\"hunter22\"");
+    sd_bus_message_close_container(quotedPsk);
+    EXPECT(callErrorName(bus, quotedPsk) == "fi.w1.wpa_supplicant1.InvalidArgs");
+
+    // The raw key as a 64 character string instead of 32 raw bytes.
+    sd_bus_message* hexPsk {newInterfaceCall(bus, "AddNetwork")};
+    appendByteArrayEntry(hexPsk, "ssid", "Cafe");
+    appendStringEntry(hexPsk, "psk",
+                      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+    sd_bus_message_close_container(hexPsk);
+    EXPECT(callErrorName(bus, hexPsk) == "fi.w1.wpa_supplicant1.InvalidArgs");
+
+    // A BSS has no Properties property; GetAll is the only way to enumerate it.
+    sd_bus_message* getProperties {nullptr};
+    EXPECT(sd_bus_message_new_method_call(bus, &getProperties, "fi.w1.wpa_supplicant1",
+                                          sCafeBssPath, "org.freedesktop.DBus.Properties",
+                                          "Get") >= 0);
+    sd_bus_message_append(getProperties, "ss", "fi.w1.wpa_supplicant1.BSS", "Properties");
+    EXPECT(callErrorName(bus, getProperties) == "org.freedesktop.DBus.Error.UnknownProperty");
+
+    sd_bus_unref(bus);
+    server.stop();
 }
 
 TEST_CASE(wifiDaemonRestartRecovers)

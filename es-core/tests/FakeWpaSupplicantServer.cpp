@@ -119,29 +119,95 @@ namespace
         return sd_bus_message_close_container(message) >= 0;
     }
 
-    // A nested RSN a{sv} with the KeyMgmt suites, which is what the parser reads.
+    // The contents of a nested WPA or RSN a{sv}: the KeyMgmt suites, which is what the parser
+    // reads.
+    bool appendKeyMgmtValue(sd_bus_message* message, const std::vector<std::string>& suites)
+    {
+        if (sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}") < 0)
+            return false;
+        if (sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv") < 0)
+            return false;
+        if (sd_bus_message_append(message, "s", "KeyMgmt") < 0)
+            return false;
+        if (sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "as") < 0)
+            return false;
+        if (sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "s") < 0)
+            return false;
+        for (const std::string& suite : suites) {
+            if (sd_bus_message_append(message, "s", suite.c_str()) < 0)
+                return false;
+        }
+        if (sd_bus_message_close_container(message) < 0)
+            return false;
+        if (sd_bus_message_close_container(message) < 0)
+            return false;
+        if (sd_bus_message_close_container(message) < 0)
+            return false;
+        return sd_bus_message_close_container(message) >= 0;
+    }
+
+    // A nested WPA or RSN a{sv} dictionary entry.
     bool appendKeyMgmtProperty(sd_bus_message* message,
                                const char* name,
                                const std::vector<std::string>& suites)
     {
-        sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv");
-        sd_bus_message_append(message, "s", name);
-        sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "a{sv}");
-        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
-
-        sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv");
-        sd_bus_message_append(message, "s", "KeyMgmt");
-        sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "as");
-        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "s");
-        for (const std::string& suite : suites)
-            sd_bus_message_append(message, "s", suite.c_str());
-        sd_bus_message_close_container(message);
-        sd_bus_message_close_container(message);
-        sd_bus_message_close_container(message);
-
-        sd_bus_message_close_container(message);
-        sd_bus_message_close_container(message);
+        if (sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv") < 0)
+            return false;
+        if (sd_bus_message_append(message, "s", name) < 0)
+            return false;
+        if (sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "a{sv}") < 0)
+            return false;
+        if (!appendKeyMgmtValue(message, suites))
+            return false;
+        if (sd_bus_message_close_container(message) < 0)
+            return false;
         return sd_bus_message_close_container(message) >= 0;
+    }
+
+    // The raw value of an "ay" property, which is what a BSS SSID and BSSID are.
+    int appendByteArrayValue(sd_bus_message* message, const std::vector<std::uint8_t>& bytes)
+    {
+        if (sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "y") < 0)
+            return -ENOMEM;
+
+        for (const std::uint8_t byte : bytes) {
+            if (sd_bus_message_append(message, "y", byte) < 0)
+                return -ENOMEM;
+        }
+
+        return sd_bus_message_close_container(message);
+    }
+
+    std::string hexKey(const std::vector<std::uint8_t>& bytes)
+    {
+        static constexpr char digits[] {"0123456789abcdef"};
+
+        std::string key;
+        key.reserve(bytes.size() * 2);
+        for (const std::uint8_t byte : bytes) {
+            key.push_back(digits[byte >> 4]);
+            key.push_back(digits[byte & 0x0f]);
+        }
+        return key;
+    }
+
+    bool isPrivateBss(const std::vector<std::string>& keyMgmt)
+    {
+        return !keyMgmt.empty() && keyMgmt.front() != "NONE";
+    }
+
+    // The Properties dictionary of a Network: wpa_config_get_all emits every value as a string.
+    void appendNetworkProperties(sd_bus_message* message,
+                                 const std::string& ssid,
+                                 const std::string& keyMgmt,
+                                 const bool enabled)
+    {
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
+        const std::string encodedSsid {WifiState::encodeSsid(ssid)};
+        appendStringProperty(message, "ssid", encodedSsid.c_str());
+        appendStringProperty(message, "key_mgmt", keyMgmt.c_str());
+        appendStringProperty(message, "disabled", enabled ? "0" : "1");
+        sd_bus_message_close_container(message);
     }
 
     std::vector<std::uint8_t> byteValues(const std::string& text)
@@ -416,8 +482,11 @@ void FakeWpaSupplicantServer::emitBssAdded(const std::string& path)
     sd_bus_message_append(signal, "o", path.c_str());
     sd_bus_message_open_container(signal, SD_BUS_TYPE_ARRAY, "{sv}");
     appendByteArrayProperty(signal, "SSID", byteValues(bss->second.ssid));
+    appendByteArrayProperty(signal, "BSSID", bss->second.bssid);
+    appendBooleanProperty(signal, "Privacy", isPrivateBss(bss->second.keyMgmt));
     appendInt16Property(signal, "Signal", bss->second.signal);
     appendUint16Property(signal, "Frequency", bss->second.frequency);
+    appendKeyMgmtProperty(signal, "WPA", bss->second.keyMgmt);
     appendKeyMgmtProperty(signal, "RSN", bss->second.keyMgmt);
     sd_bus_message_close_container(signal);
 
@@ -436,11 +505,21 @@ void FakeWpaSupplicantServer::emitNetworkAdded(const std::string& path)
                                   "NetworkAdded") < 0)
         return;
 
+    // wpas_dbus_signal_network_added wraps the network configuration in a Properties dictionary
+    // of strings and adds the Enabled boolean at the top level.
     sd_bus_message_append(signal, "o", path.c_str());
     sd_bus_message_open_container(signal, SD_BUS_TYPE_ARRAY, "{sv}");
-    appendByteArrayProperty(signal, "ssid", byteValues(network->second.ssid));
-    appendStringProperty(signal, "key_mgmt", network->second.keyMgmt.c_str());
-    appendBooleanProperty(signal, "disabled", !network->second.enabled);
+
+    sd_bus_message_open_container(signal, SD_BUS_TYPE_DICT_ENTRY, "sv");
+    sd_bus_message_append(signal, "s", "Properties");
+    sd_bus_message_open_container(signal, SD_BUS_TYPE_VARIANT, "a{sv}");
+    appendNetworkProperties(signal, network->second.ssid, network->second.keyMgmt,
+                            network->second.enabled);
+    sd_bus_message_close_container(signal);
+    sd_bus_message_close_container(signal);
+
+    appendBooleanProperty(signal, "Enabled", network->second.enabled);
+
     sd_bus_message_close_container(signal);
 
     sd_bus_send(mBus, signal, nullptr);
@@ -451,21 +530,6 @@ void FakeWpaSupplicantServer::emitNetworkRemoved(const std::string& path)
 {
     sd_bus_emit_signal(mBus, mInterfacePath.c_str(), sInterfaceInterface, "NetworkRemoved", "o",
                        path.c_str());
-}
-
-std::string FakeWpaSupplicantServer::unquote(const std::string& text)
-{
-    if (text.size() < 2 || text.front() != '"' || text.back() != '"')
-        return text;
-
-    std::string result;
-    for (std::size_t index {1}; index + 1 < text.size(); ++index) {
-        if (text[index] == '\\' && index + 2 < text.size())
-            ++index;
-        result.push_back(text[index]);
-    }
-
-    return result;
 }
 
 const sd_bus_vtable* FakeWpaSupplicantServer::rootVTable()
@@ -514,11 +578,18 @@ const sd_bus_vtable* FakeWpaSupplicantServer::interfaceVTable()
 
 const sd_bus_vtable* FakeWpaSupplicantServer::bssVTable()
 {
-    static const sd_bus_vtable vtable[] = {SD_BUS_VTABLE_START(0),
-                                           SD_BUS_PROPERTY("Properties", "a{sv}", onBssProperty, 0,
-                                                           SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
-                                           SD_BUS_SIGNAL("PropertiesChanged", "a{sv}", 0),
-                                           SD_BUS_VTABLE_END};
+    // A BSS exposes its properties individually and has no Properties property.
+    static const sd_bus_vtable vtable[] = {
+        SD_BUS_VTABLE_START(0),
+        SD_BUS_PROPERTY("SSID", "ay", onBssProperty, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+        SD_BUS_PROPERTY("BSSID", "ay", onBssProperty, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+        SD_BUS_PROPERTY("Privacy", "b", onBssProperty, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+        SD_BUS_PROPERTY("Signal", "n", onBssProperty, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+        SD_BUS_PROPERTY("Frequency", "q", onBssProperty, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+        SD_BUS_PROPERTY("WPA", "a{sv}", onBssProperty, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+        SD_BUS_PROPERTY("RSN", "a{sv}", onBssProperty, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+        SD_BUS_SIGNAL("PropertiesChanged", "a{sv}", 0),
+        SD_BUS_VTABLE_END};
 
     return vtable;
 }
@@ -575,8 +646,14 @@ void FakeWpaSupplicantServer::writeConfig()
     for (const auto& network : mNetworks) {
         text += "network={\n";
         text += "\tssid=\"" + network.second.ssid + "\"\n";
-        if (!network.second.psk.empty())
-            text += "\tpsk=\"" + network.second.psk + "\"\n";
+        if (!network.second.psk.empty()) {
+            // A raw key is written as 64 hexadecimal digits without quotes, a passphrase as a
+            // quoted string.
+            if (network.second.psk.size() == 64)
+                text += "\tpsk=" + network.second.psk + "\n";
+            else
+                text += "\tpsk=\"" + network.second.psk + "\"\n";
+        }
         text += "}\n";
     }
 
@@ -604,7 +681,7 @@ void FakeWpaSupplicantServer::selectNetwork(const std::string& path)
 
     const auto expected {mExpectedPassphrases.find(network->second.ssid)};
     const bool accepted {expected == mExpectedPassphrases.end() ||
-                         unquote(network->second.psk) == expected->second};
+                         network->second.psk == expected->second};
 
     if (!accepted) {
         mState = "disconnected";
@@ -723,15 +800,26 @@ int FakeWpaSupplicantServer::onBssProperty(sd_bus*,
     const std::string objectPath {path == nullptr ? std::string {} : std::string {path}};
     const auto bss {server->mBsses.find(objectPath)};
 
-    if (bss == server->mBsses.end() || std::strcmp(property, "Properties") != 0)
+    if (bss == server->mBsses.end())
         return sd_bus_error_set(error, SD_BUS_ERROR_UNKNOWN_PROPERTY, "Unknown property");
 
-    sd_bus_message_open_container(reply, SD_BUS_TYPE_ARRAY, "{sv}");
-    appendByteArrayProperty(reply, "SSID", byteValues(bss->second.ssid));
-    appendInt16Property(reply, "Signal", bss->second.signal);
-    appendUint16Property(reply, "Frequency", bss->second.frequency);
-    appendKeyMgmtProperty(reply, "RSN", bss->second.keyMgmt);
-    return sd_bus_message_close_container(reply);
+    if (std::strcmp(property, "SSID") == 0)
+        return appendByteArrayValue(reply, byteValues(bss->second.ssid));
+    if (std::strcmp(property, "BSSID") == 0)
+        return appendByteArrayValue(reply, bss->second.bssid);
+    if (std::strcmp(property, "Privacy") == 0)
+        return sd_bus_message_append(reply, "b", isPrivateBss(bss->second.keyMgmt) ? 1 : 0);
+    if (std::strcmp(property, "Signal") == 0)
+        return sd_bus_message_append(reply, "n", bss->second.signal);
+    if (std::strcmp(property, "Frequency") == 0)
+        return sd_bus_message_append(reply, "q", bss->second.frequency);
+    if (std::strcmp(property, "WPA") == 0 || std::strcmp(property, "RSN") == 0) {
+        if (!appendKeyMgmtValue(reply, bss->second.keyMgmt))
+            return -ENOMEM;
+        return 0;
+    }
+
+    return sd_bus_error_set(error, SD_BUS_ERROR_UNKNOWN_PROPERTY, "Unknown property");
 }
 
 int FakeWpaSupplicantServer::onNetworkProperty(sd_bus*,
@@ -749,11 +837,9 @@ int FakeWpaSupplicantServer::onNetworkProperty(sd_bus*,
     if (network == server->mNetworks.end() || std::strcmp(property, "Properties") != 0)
         return sd_bus_error_set(error, SD_BUS_ERROR_UNKNOWN_PROPERTY, "Unknown property");
 
-    sd_bus_message_open_container(reply, SD_BUS_TYPE_ARRAY, "{sv}");
-    appendByteArrayProperty(reply, "ssid", byteValues(network->second.ssid));
-    appendStringProperty(reply, "key_mgmt", network->second.keyMgmt.c_str());
-    appendBooleanProperty(reply, "disabled", !network->second.enabled);
-    return sd_bus_message_close_container(reply);
+    appendNetworkProperties(reply, network->second.ssid, network->second.keyMgmt,
+                            network->second.enabled);
+    return 0;
 }
 
 int FakeWpaSupplicantServer::onNetworkEnabled(sd_bus*,
@@ -804,9 +890,25 @@ int FakeWpaSupplicantServer::onNetworkEnabledSet(sd_bus*,
     return 0;
 }
 
-int FakeWpaSupplicantServer::onScan(sd_bus_message* message, void* userdata, sd_bus_error*)
+int FakeWpaSupplicantServer::onScan(sd_bus_message* message, void* userdata, sd_bus_error* error)
 {
     auto* server {static_cast<FakeWpaSupplicantServer*>(userdata)};
+
+    // wpas_dbus_handler_scan reads the Type entry and rejects a call without one.
+    WifiProperties properties;
+    if (!WifiMessageParser::readProperties(message, properties))
+        return sd_bus_error_set(error, "fi.w1.wpa_supplicant1.InvalidArgs",
+                                "Could not read the scan properties");
+
+    const auto typeProperty {properties.find("Type")};
+    const auto* typeValue {typeProperty == properties.end() ?
+                               nullptr :
+                               std::get_if<std::string>(&typeProperty->second)};
+    const std::string type {typeValue == nullptr ? std::string {} : *typeValue};
+
+    if (type != "active" && type != "passive")
+        return sd_bus_error_set(error, "fi.w1.wpa_supplicant1.InvalidArgs",
+                                "Missing or unsupported scan type");
 
     {
         std::lock_guard<std::mutex> lock {server->mCallsMutex};
@@ -831,22 +933,30 @@ int FakeWpaSupplicantServer::onAddNetwork(sd_bus_message* message,
 
     WifiProperties properties;
     if (!WifiMessageParser::readProperties(message, properties))
-        return sd_bus_error_set(error, "fi.w1.wpa_supplicant1.Error.InvalidArgs",
+        return sd_bus_error_set(error, "fi.w1.wpa_supplicant1.InvalidArgs",
                                 "Could not read the network properties");
 
+    // The SSID is a raw byte array. A string is accepted as the unquoted form only; upstream
+    // wraps a string value in double quotes itself, so one that arrives already quoted is the
+    // double quoting bug this server has to reject.
     std::string ssid;
     const auto ssidProperty {properties.find("ssid")};
     if (ssidProperty != properties.end()) {
         if (const auto* bytes {std::get_if<std::vector<std::uint8_t>>(&ssidProperty->second)};
-            bytes != nullptr)
-            ssid.assign(reinterpret_cast<const char*>(bytes->data()), bytes->size());
+            bytes != nullptr) {
+            if (!bytes->empty() && bytes->size() <= 32)
+                ssid.assign(reinterpret_cast<const char*>(bytes->data()), bytes->size());
+        }
         else if (const auto* text {std::get_if<std::string>(&ssidProperty->second)};
-                 text != nullptr)
-            ssid = WifiState::decodeSsid(*text);
+                 text != nullptr) {
+            if (!text->empty() && text->size() <= 32 && text->front() != '"' && text->back() != '"')
+                ssid = *text;
+        }
     }
 
     if (ssid.empty())
-        return sd_bus_error_set(error, "fi.w1.wpa_supplicant1.Error.InvalidArgs", "Missing SSID");
+        return sd_bus_error_set(error, "fi.w1.wpa_supplicant1.InvalidArgs",
+                                "Missing or invalid SSID");
 
     Network network;
     network.ssid = ssid;
@@ -858,10 +968,28 @@ int FakeWpaSupplicantServer::onAddNetwork(sd_bus_message* message,
             network.keyMgmt = *value;
     }
 
+    // A passphrase is an unquoted 8..63 character string that upstream quotes itself, or a raw
+    // key as 32 bytes. A pre-quoted string and a 64 character string are both rejected.
     const auto psk {properties.find("psk")};
     if (psk != properties.end()) {
-        if (const auto* value {std::get_if<std::string>(&psk->second)}; value != nullptr)
-            network.psk = unquote(*value);
+        if (const auto* value {std::get_if<std::string>(&psk->second)}; value != nullptr) {
+            if (value->size() < 8 || value->size() > 63 ||
+                (value->size() >= 2 && value->front() == '"' && value->back() == '"'))
+                return sd_bus_error_set(error, "fi.w1.wpa_supplicant1.InvalidArgs",
+                                        "Invalid passphrase");
+            network.psk = *value;
+        }
+        else if (const auto* bytes {std::get_if<std::vector<std::uint8_t>>(&psk->second)};
+                 bytes != nullptr) {
+            if (bytes->size() != 32)
+                return sd_bus_error_set(error, "fi.w1.wpa_supplicant1.InvalidArgs",
+                                        "Invalid raw key");
+            network.psk = hexKey(*bytes);
+        }
+        else {
+            return sd_bus_error_set(error, "fi.w1.wpa_supplicant1.InvalidArgs",
+                                    "Invalid passphrase type");
+        }
     }
 
     std::string path {server->mInterfacePath + "/Networks/" +

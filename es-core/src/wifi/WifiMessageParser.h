@@ -29,14 +29,18 @@
 // integers are reduced to std::int64_t and all unsigned ones to std::uint64_t. An array of bytes
 // is reduced to a vector, so that an SSID or a BSSID with a NUL byte keeps its length. String
 // arrays, including arrays of object paths, are reduced to a vector of strings. The nested WPA and
-// RSN dictionaries are reduced to their string arrays, which is where KeyMgmt lives.
+// RSN dictionaries are reduced to their string arrays, which is where KeyMgmt lives. A dictionary
+// with only string values, such as the Properties dictionary of a Network, is kept as a string
+// map.
+using WifiStringProperties = std::map<std::string, std::string>;
 using WifiPropertyValue = std::variant<bool,
                                        std::int64_t,
                                        std::uint64_t,
                                        std::string,
                                        std::vector<std::uint8_t>,
                                        std::vector<std::string>,
-                                       std::map<std::string, std::vector<std::string>>>;
+                                       std::map<std::string, std::vector<std::string>>,
+                                       WifiStringProperties>;
 
 // The properties of one a{sv} dictionary, by property name.
 using WifiProperties = std::map<std::string, WifiPropertyValue>;

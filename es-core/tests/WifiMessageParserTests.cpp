@@ -242,6 +242,86 @@ namespace
         return holder;
     }
 
+    // A NetworkAdded body as wpas_dbus_signal_network_added emits it: the configuration is
+    // wrapped in a Properties dictionary of strings, with Enabled at the top level.
+    std::shared_ptr<sd_bus_message> buildWrappedNetworkAddedMessage(sd_bus* bus, const bool enabled)
+    {
+        const std::shared_ptr<sd_bus_message> holder {newSignal(bus, "NetworkAdded")};
+        if (holder == nullptr)
+            return nullptr;
+
+        sd_bus_message* message {holder.get()};
+        sd_bus_message_append(message, "o", "/fi/w1/wpa_supplicant1/Interfaces/1/Networks/0");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
+
+        sd_bus_message_open_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv");
+        sd_bus_message_append(message, "s", "Properties");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_VARIANT, "a{sv}");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
+        appendStringProperty(message, "ssid", "\"Home\"");
+        appendStringProperty(message, "key_mgmt", "WPA-PSK");
+        appendStringProperty(message, "disabled", enabled ? "0" : "1");
+        sd_bus_message_close_container(message);
+        sd_bus_message_close_container(message);
+        sd_bus_message_close_container(message);
+
+        appendBooleanProperty(message, "Enabled", enabled);
+        sd_bus_message_close_container(message);
+
+        if (!sealAndRewind(message))
+            return nullptr;
+
+        return holder;
+    }
+
+    // A flat Network Properties dictionary with the string form of disabled.
+    std::shared_ptr<sd_bus_message> buildStringDisabledMessage(sd_bus* bus, const char* disabled)
+    {
+        const std::shared_ptr<sd_bus_message> holder {newSignal(bus, "NetworkAdded")};
+        if (holder == nullptr)
+            return nullptr;
+
+        sd_bus_message* message {holder.get()};
+        sd_bus_message_append(message, "o", "/fi/w1/wpa_supplicant1/Interfaces/1/Networks/1");
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
+        appendByteArrayProperty(message, "ssid", byteValues("Home"));
+        appendStringProperty(message, "key_mgmt", "WPA-PSK");
+        appendStringProperty(message, "disabled", disabled);
+        sd_bus_message_close_container(message);
+
+        if (!sealAndRewind(message))
+            return nullptr;
+
+        return holder;
+    }
+
+    // The top-level a{sv} of a BSS Properties.GetAll reply with the lower case suite names that
+    // the daemon emits.
+    std::shared_ptr<sd_bus_message> buildBssGetAllMessage(sd_bus* bus)
+    {
+        sd_bus_message* message {nullptr};
+        if (sd_bus_message_new_method_call(bus, &message, "fi.w1.wpa_supplicant1", bssPath,
+                                           "org.freedesktop.DBus.Properties", "GetAll") < 0)
+            return nullptr;
+
+        std::shared_ptr<sd_bus_message> holder {message, sd_bus_message_unref};
+
+        sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
+        appendByteArrayProperty(message, "SSID", byteValues(ssidText));
+        appendByteArrayProperty(message, "BSSID", {0x02, 0x00, 0x00, 0x00, 0x00, 0x01});
+        appendBooleanProperty(message, "Privacy", true);
+        appendInt16Property(message, "Signal", -48);
+        appendUInt16Property(message, "Frequency", 2437);
+        appendNestedKeyMgmtProperty(message, "WPA", {"wpa-ft-psk"});
+        appendNestedKeyMgmtProperty(message, "RSN", {"sae"});
+        sd_bus_message_close_container(message);
+
+        if (!sealAndRewind(message))
+            return nullptr;
+
+        return holder;
+    }
+
     // The top-level arguments of a PropertiesChanged signal. The standard
     // org.freedesktop.DBus.Properties.PropertiesChanged body is (sa{sv}as); wpa_supplicant's own
     // BSS and Network PropertiesChanged signal only carries (a{sv}).
@@ -572,6 +652,110 @@ TEST_CASE(disabledNetworksAreParsed)
     WifiMessageParser::applyNetworkProperties(properties, network);
     EXPECT(network.ssid == "Home");
     EXPECT(!network.enabled);
+}
+
+TEST_CASE(wrappedNetworkAddedPropertiesAreApplied)
+{
+    sd_bus* bus {openTestBus()};
+    EXPECT(bus != nullptr);
+    if (bus == nullptr)
+        return;
+
+    const std::shared_ptr<sd_bus_message> disabled {buildWrappedNetworkAddedMessage(bus, false)};
+    const std::shared_ptr<sd_bus_message> enabled {buildWrappedNetworkAddedMessage(bus, true)};
+    sd_bus_unref(bus);
+
+    EXPECT(disabled != nullptr);
+    EXPECT(enabled != nullptr);
+    if (disabled == nullptr || enabled == nullptr)
+        return;
+
+    std::string path;
+    WifiProperties properties;
+    EXPECT(WifiMessageParser::readObjectAdded(disabled.get(), path, properties));
+    EXPECT(path == "/fi/w1/wpa_supplicant1/Interfaces/1/Networks/0");
+
+    WifiSavedNetwork network;
+    WifiMessageParser::applyNetworkProperties(properties, network);
+    EXPECT(network.ssid == "Home");
+    EXPECT(network.keyMgmt == "WPA-PSK");
+    EXPECT(!network.enabled);
+
+    WifiProperties enabledProperties;
+    EXPECT(WifiMessageParser::readObjectAdded(enabled.get(), path, enabledProperties));
+    WifiSavedNetwork enabledNetwork;
+    WifiMessageParser::applyNetworkProperties(enabledProperties, enabledNetwork);
+    EXPECT(enabledNetwork.enabled);
+}
+
+TEST_CASE(stringDisabledControlsEnabled)
+{
+    sd_bus* bus {openTestBus()};
+    EXPECT(bus != nullptr);
+    if (bus == nullptr)
+        return;
+
+    const std::shared_ptr<sd_bus_message> enabled {buildStringDisabledMessage(bus, "0")};
+    const std::shared_ptr<sd_bus_message> disabled {buildStringDisabledMessage(bus, "1")};
+    const std::shared_ptr<sd_bus_message> other {buildStringDisabledMessage(bus, "2")};
+    sd_bus_unref(bus);
+
+    EXPECT(enabled != nullptr);
+    EXPECT(disabled != nullptr);
+    EXPECT(other != nullptr);
+    if (enabled == nullptr || disabled == nullptr || other == nullptr)
+        return;
+
+    WifiProperties properties;
+    std::string path;
+    EXPECT(WifiMessageParser::readObjectAdded(enabled.get(), path, properties));
+    WifiSavedNetwork network;
+    WifiMessageParser::applyNetworkProperties(properties, network);
+    EXPECT(network.ssid == "Home");
+    EXPECT(network.enabled);
+
+    WifiProperties disabledProperties;
+    EXPECT(WifiMessageParser::readObjectAdded(disabled.get(), path, disabledProperties));
+    WifiSavedNetwork disabledNetwork;
+    WifiMessageParser::applyNetworkProperties(disabledProperties, disabledNetwork);
+    EXPECT(!disabledNetwork.enabled);
+
+    // Any non-zero value disables the network.
+    WifiProperties otherProperties;
+    EXPECT(WifiMessageParser::readObjectAdded(other.get(), path, otherProperties));
+    WifiSavedNetwork otherNetwork;
+    WifiMessageParser::applyNetworkProperties(otherProperties, otherNetwork);
+    EXPECT(!otherNetwork.enabled);
+}
+
+TEST_CASE(bssGetAllWithLowercaseSuitesIsClassified)
+{
+    sd_bus* bus {openTestBus()};
+    EXPECT(bus != nullptr);
+    if (bus == nullptr)
+        return;
+
+    const std::shared_ptr<sd_bus_message> message {buildBssGetAllMessage(bus)};
+    sd_bus_unref(bus);
+
+    EXPECT(message != nullptr);
+    if (message == nullptr)
+        return;
+
+    WifiProperties properties;
+    EXPECT(WifiMessageParser::readProperties(message.get(), properties));
+
+    WifiBss bss;
+    WifiMessageParser::applyBssProperties(properties, bss);
+    EXPECT(bss.ssid == ssidText);
+    EXPECT(bss.frequency == 2437);
+    EXPECT(bss.keyMgmt.size() == 2);
+    if (bss.keyMgmt.size() == 2) {
+        EXPECT(bss.keyMgmt.at(0) == "wpa-ft-psk");
+        EXPECT(bss.keyMgmt.at(1) == "sae");
+    }
+    EXPECT(WifiState::classifySecurity(bss.keyMgmt) == WifiSecurity::personal);
+    EXPECT(WifiState::preferredKeyMgmt(bss.keyMgmt) == WifiKeyMgmt::wpaPsk);
 }
 
 TEST_CASE(unknownVariantsDoNotBreakTheDictionary)

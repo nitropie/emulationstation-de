@@ -37,21 +37,27 @@ namespace
         return std::all_of(text.begin(), text.end(), isHexDigit);
     }
 
-    std::string toUpperAscii(const std::string& text)
+    // wpa_supplicant spells the suites in lower case with hyphens on the D-Bus wire, while a
+    // saved network keeps the upper case configuration form. Comparing a normalized form accepts
+    // both spellings without listing every suite twice.
+    std::string normalizeKeyMgmt(const std::string& text)
     {
-        std::string upper {text};
-        std::transform(upper.begin(), upper.end(), upper.begin(),
-                       [](const unsigned char character) {
-                           return static_cast<char>(std::toupper(character));
-                       });
-        return upper;
+        std::string normalized;
+        normalized.reserve(text.size());
+        for (const char character : text) {
+            const auto byte {static_cast<unsigned char>(character)};
+            normalized.push_back(character == '-' ? '_' : static_cast<char>(std::toupper(byte)));
+        }
+        return normalized;
     }
 
     bool hasKeyMgmt(const std::vector<std::string>& keyMgmt, const char* suite)
     {
-        return std::any_of(keyMgmt.begin(), keyMgmt.end(), [suite](const std::string& candidate) {
-            return toUpperAscii(candidate) == suite;
-        });
+        const std::string expected {normalizeKeyMgmt(suite)};
+        return std::any_of(keyMgmt.begin(), keyMgmt.end(),
+                           [&expected](const std::string& candidate) {
+                               return normalizeKeyMgmt(candidate) == expected;
+                           });
     }
 
     // An SSID is hidden when the access point did not publish one. wpa_supplicant reports that as
@@ -378,35 +384,51 @@ std::string WifiState::encodeSsid(const std::string& ssid)
 
 WifiSecurity WifiState::classifySecurity(const std::vector<std::string>& keyMgmt)
 {
-    if (hasKeyMgmt(keyMgmt, "WPA-EAP") || hasKeyMgmt(keyMgmt, "WPA-EAP-SUITE-B-192") ||
+    // The suite names are the ones that wpa_supplicant's dbus_new_handlers.c emits, plus the
+    // upper case configuration form that a saved network stores.
+    if (hasKeyMgmt(keyMgmt, "WPA-EAP") || hasKeyMgmt(keyMgmt, "WPA-EAP-SHA256") ||
+        hasKeyMgmt(keyMgmt, "WPA-EAP-SHA384") || hasKeyMgmt(keyMgmt, "WPA-EAP-SUITE-B") ||
+        hasKeyMgmt(keyMgmt, "WPA-EAP-SUITE-B-192") || hasKeyMgmt(keyMgmt, "WPA-FT-EAP") ||
+        hasKeyMgmt(keyMgmt, "FT-EAP") || hasKeyMgmt(keyMgmt, "FT-EAP-SHA384") ||
+        hasKeyMgmt(keyMgmt, "WPA-FILS-SHA256") || hasKeyMgmt(keyMgmt, "WPA-FILS-SHA384") ||
+        hasKeyMgmt(keyMgmt, "WPA-FT-FILS-SHA256") || hasKeyMgmt(keyMgmt, "WPA-FT-FILS-SHA384") ||
         hasKeyMgmt(keyMgmt, "IEEE8021X"))
         return WifiSecurity::enterprise;
 
     if (hasKeyMgmt(keyMgmt, "WPA-PSK") || hasKeyMgmt(keyMgmt, "WPA-PSK-SHA256") ||
-        hasKeyMgmt(keyMgmt, "FT-PSK") || hasKeyMgmt(keyMgmt, "SAE") ||
-        hasKeyMgmt(keyMgmt, "SAE-EXT-KEY"))
+        hasKeyMgmt(keyMgmt, "WPA-FT-PSK") || hasKeyMgmt(keyMgmt, "FT-PSK") ||
+        hasKeyMgmt(keyMgmt, "SAE") || hasKeyMgmt(keyMgmt, "SAE-EXT-KEY") ||
+        hasKeyMgmt(keyMgmt, "FT-SAE") || hasKeyMgmt(keyMgmt, "FT-SAE-EXT-KEY"))
         return WifiSecurity::personal;
 
     // An empty key management list is what an access point without a WPA or RSN information
-    // element reports, and "NONE" is what wpa_supplicant stores for such a network.
+    // element reports. "NONE" and "WPA-NONE" are the stored forms, and OWE is an open network
+    // with opportunistic encryption that the frontend does not configure.
     return WifiSecurity::open;
 }
 
 WifiKeyMgmt WifiState::preferredKeyMgmt(const std::vector<std::string>& keyMgmt)
 {
-    if (hasKeyMgmt(keyMgmt, "WPA-EAP") || hasKeyMgmt(keyMgmt, "WPA-EAP-SUITE-B-192") ||
+    if (hasKeyMgmt(keyMgmt, "WPA-EAP") || hasKeyMgmt(keyMgmt, "WPA-EAP-SHA256") ||
+        hasKeyMgmt(keyMgmt, "WPA-EAP-SHA384") || hasKeyMgmt(keyMgmt, "WPA-EAP-SUITE-B") ||
+        hasKeyMgmt(keyMgmt, "WPA-EAP-SUITE-B-192") || hasKeyMgmt(keyMgmt, "WPA-FT-EAP") ||
+        hasKeyMgmt(keyMgmt, "FT-EAP") || hasKeyMgmt(keyMgmt, "FT-EAP-SHA384") ||
+        hasKeyMgmt(keyMgmt, "WPA-FILS-SHA256") || hasKeyMgmt(keyMgmt, "WPA-FILS-SHA384") ||
+        hasKeyMgmt(keyMgmt, "WPA-FT-FILS-SHA256") || hasKeyMgmt(keyMgmt, "WPA-FT-FILS-SHA384") ||
         hasKeyMgmt(keyMgmt, "IEEE8021X"))
         return WifiKeyMgmt::wpaEap;
 
-    // WPA-PSK wins over SAE when an access point advertises both. That is the WPA2/WPA3
+    // A PSK suite wins over SAE when an access point advertises both. That is the WPA2/WPA3
     // transition mode, and asking for SAE there stalls Broadcom brcmfmac cards.
     if (hasKeyMgmt(keyMgmt, "WPA-PSK") || hasKeyMgmt(keyMgmt, "WPA-PSK-SHA256") ||
-        hasKeyMgmt(keyMgmt, "FT-PSK"))
+        hasKeyMgmt(keyMgmt, "WPA-FT-PSK") || hasKeyMgmt(keyMgmt, "FT-PSK"))
         return WifiKeyMgmt::wpaPsk;
 
-    if (hasKeyMgmt(keyMgmt, "SAE") || hasKeyMgmt(keyMgmt, "SAE-EXT-KEY"))
+    if (hasKeyMgmt(keyMgmt, "SAE") || hasKeyMgmt(keyMgmt, "SAE-EXT-KEY") ||
+        hasKeyMgmt(keyMgmt, "FT-SAE") || hasKeyMgmt(keyMgmt, "FT-SAE-EXT-KEY"))
         return WifiKeyMgmt::sae;
 
+    // NONE, WPA-NONE and OWE need no key management of their own.
     return WifiKeyMgmt::none;
 }
 
@@ -438,14 +460,16 @@ std::string WifiState::passphraseError() { return "Password must be between 8 an
 std::string WifiState::describeError(const std::string& errorName, const std::string& message)
 {
     static const std::map<std::string, std::string> descriptions {
-        {"fi.w1.wpa_supplicant1.Error.Failed", "The Wi-Fi operation failed"},
-        {"fi.w1.wpa_supplicant1.Error.InvalidArgs", "The network settings were not accepted"},
-        {"fi.w1.wpa_supplicant1.Error.AlreadyExists", "The network is already known"},
-        {"fi.w1.wpa_supplicant1.Error.UnknownNetwork", "The network is no longer known"},
-        {"fi.w1.wpa_supplicant1.Error.NotConnected", "There is no active Wi-Fi connection"},
-        {"fi.w1.wpa_supplicant1.Error.NotSupported", "The operation is not supported"},
-        {"fi.w1.wpa_supplicant1.Error.InvalidParameter", "The network settings were not accepted"},
-        {"fi.w1.wpa_supplicant1.Error.InvalidNetwork", "The network settings were not accepted"},
+        {"fi.w1.wpa_supplicant1.InvalidArgs", "The network settings were not accepted"},
+        {"fi.w1.wpa_supplicant1.UnknownError", "The Wi-Fi operation failed"},
+        {"fi.w1.wpa_supplicant1.NetworkUnknown", "The network is no longer known"},
+        {"fi.w1.wpa_supplicant1.NotConnected", "There is no active Wi-Fi connection"},
+        {"fi.w1.wpa_supplicant1.InterfaceDisabled", "The Wi-Fi interface is disabled"},
+        {"fi.w1.wpa_supplicant1.InterfaceUnknown", "The Wi-Fi interface is not available"},
+        {"fi.w1.wpa_supplicant1.ConnectChannelUnavailable", "The Wi-Fi service is busy"},
+        {"fi.w1.wpa_supplicant1.ConnectChannelUnsupported", "The operation is not supported"},
+        {"fi.w1.wpa_supplicant1.ConnectUnspecifiedError", "The Wi-Fi operation failed"},
+        {"fi.w1.wpa_supplicant1.Interface.ScanError", "The scan failed"},
         {"org.freedesktop.DBus.Error.ServiceUnknown", "The Wi-Fi service is not running"},
         {"org.freedesktop.DBus.Error.NoReply", "The Wi-Fi service did not reply"},
         {"org.freedesktop.DBus.Error.TimedOut", "The Wi-Fi service did not reply in time"},

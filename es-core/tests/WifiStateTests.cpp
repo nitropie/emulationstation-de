@@ -238,6 +238,44 @@ TEST_CASE(securityIsClassifiedFromKeyManagement)
     // Enterprise wins when an access point advertises both.
     EXPECT(WifiState::classifySecurity({"WPA-EAP", "WPA-PSK"}) == WifiSecurity::enterprise);
     EXPECT(WifiState::preferredKeyMgmt({"WPA-EAP", "WPA-PSK"}) == WifiKeyMgmt::wpaEap);
+
+    // The suite names that dbus_new_handlers.c emits are lower case and hyphenated.
+    EXPECT(WifiState::classifySecurity({"wpa-psk-sha256"}) == WifiSecurity::personal);
+    EXPECT(WifiState::preferredKeyMgmt({"wpa-psk-sha256"}) == WifiKeyMgmt::wpaPsk);
+
+    EXPECT(WifiState::classifySecurity({"wpa-ft-psk"}) == WifiSecurity::personal);
+    EXPECT(WifiState::preferredKeyMgmt({"wpa-ft-psk"}) == WifiKeyMgmt::wpaPsk);
+
+    EXPECT(WifiState::classifySecurity({"ft-psk"}) == WifiSecurity::personal);
+    EXPECT(WifiState::preferredKeyMgmt({"ft-psk"}) == WifiKeyMgmt::wpaPsk);
+
+    EXPECT(WifiState::classifySecurity({"ft-sae"}) == WifiSecurity::personal);
+    EXPECT(WifiState::preferredKeyMgmt({"ft-sae"}) == WifiKeyMgmt::sae);
+
+    EXPECT(WifiState::classifySecurity({"ft-sae-ext-key"}) == WifiSecurity::personal);
+    EXPECT(WifiState::preferredKeyMgmt({"ft-sae-ext-key"}) == WifiKeyMgmt::sae);
+
+    // A transition mode that advertises wpa-ft-psk and sae still prefers the PSK suite.
+    EXPECT(WifiState::classifySecurity({"wpa-ft-psk", "sae"}) == WifiSecurity::personal);
+    EXPECT(WifiState::preferredKeyMgmt({"wpa-ft-psk", "sae"}) == WifiKeyMgmt::wpaPsk);
+
+    EXPECT(WifiState::classifySecurity({"wpa-eap-sha256"}) == WifiSecurity::enterprise);
+    EXPECT(WifiState::preferredKeyMgmt({"wpa-eap-sha256"}) == WifiKeyMgmt::wpaEap);
+
+    EXPECT(WifiState::classifySecurity({"wpa-ft-eap"}) == WifiSecurity::enterprise);
+    EXPECT(WifiState::preferredKeyMgmt({"wpa-ft-eap"}) == WifiKeyMgmt::wpaEap);
+
+    EXPECT(WifiState::classifySecurity({"wpa-eap-suite-b"}) == WifiSecurity::enterprise);
+    EXPECT(WifiState::preferredKeyMgmt({"wpa-eap-suite-b"}) == WifiKeyMgmt::wpaEap);
+
+    EXPECT(WifiState::classifySecurity({"wpa-eap-sha384"}) == WifiSecurity::enterprise);
+    EXPECT(WifiState::preferredKeyMgmt({"wpa-eap-sha384"}) == WifiKeyMgmt::wpaEap);
+
+    // OWE is an open network that the frontend does not configure.
+    EXPECT(WifiState::classifySecurity({"OWE"}) == WifiSecurity::open);
+    EXPECT(WifiState::preferredKeyMgmt({"OWE"}) == WifiKeyMgmt::none);
+    EXPECT(WifiState::classifySecurity({"WPA-NONE"}) == WifiSecurity::open);
+    EXPECT(WifiState::preferredKeyMgmt({"WPA-NONE"}) == WifiKeyMgmt::none);
 }
 
 TEST_CASE(passphrasesAreValidated)
@@ -268,13 +306,21 @@ TEST_CASE(errorsDoNotEchoCredentials)
 {
     // A known error name maps to a fixed description. The D-Bus message is deliberately not
     // repeated, as it is the only place where a diagnostic string could carry a credential.
-    const std::string described {WifiState::describeError("fi.w1.wpa_supplicant1.Error.InvalidArgs",
+    const std::string described {WifiState::describeError("fi.w1.wpa_supplicant1.InvalidArgs",
                                                           "psk \"hunter2hunter2\" invalid")};
     EXPECT(described == "The network settings were not accepted");
     EXPECT(described.find("hunter2") == std::string::npos);
 
-    EXPECT(WifiState::describeError("fi.w1.wpa_supplicant1.Error.UnknownNetwork", "") ==
+    EXPECT(WifiState::describeError("fi.w1.wpa_supplicant1.NetworkUnknown", "") ==
            "The network is no longer known");
+    EXPECT(WifiState::describeError("fi.w1.wpa_supplicant1.InterfaceDisabled", "") ==
+           "The Wi-Fi interface is disabled");
+    EXPECT(WifiState::describeError("fi.w1.wpa_supplicant1.Interface.ScanError", "") ==
+           "The scan failed");
+    EXPECT(WifiState::describeError("fi.w1.wpa_supplicant1.ConnectChannelUnavailable", "") ==
+           "The Wi-Fi service is busy");
+    EXPECT(WifiState::describeError("fi.w1.wpa_supplicant1.ConnectUnspecifiedError", "") ==
+           "The Wi-Fi operation failed");
     EXPECT(WifiState::describeError("org.freedesktop.DBus.Error.ServiceUnknown", "") ==
            "The Wi-Fi service is not running");
     EXPECT(WifiState::describeError("org.freedesktop.DBus.Error.AccessDenied", "") ==

@@ -320,9 +320,32 @@ void FakeWpaSupplicantServer::setDropAfterAssociate(const bool value)
     mDropAfterAssociate = value;
 }
 
+void FakeWpaSupplicantServer::addUnannouncedSavedNetwork(const std::string& path,
+                                                         const std::string& ssid,
+                                                         const std::string& keyMgmt,
+                                                         const bool enabled)
+{
+    post([this, path, ssid, keyMgmt, enabled] {
+        Network network;
+        network.ssid = ssid;
+        network.keyMgmt = keyMgmt;
+        network.enabled = enabled;
+        mNetworks[path] = network;
+        registerNetworkObject(path);
+
+        std::lock_guard<std::mutex> lock {mCallsMutex};
+        ++mCalls.unannouncedNetwork;
+    });
+}
+
 void FakeWpaSupplicantServer::setSuppressNetworkSelected(const bool value)
 {
     mSuppressNetworkSelected = value;
+}
+
+void FakeWpaSupplicantServer::setSuppressNetworkAdded(const bool value)
+{
+    mSuppressNetworkAdded = value;
 }
 
 void FakeWpaSupplicantServer::setInterfaceState(const std::string& state)
@@ -1330,7 +1353,8 @@ int FakeWpaSupplicantServer::onAddNetwork(sd_bus_message* message,
     }
 
     const int result {sd_bus_reply_method_return(message, "o", path.c_str())};
-    server->emitNetworkAdded(path);
+    if (!server->mSuppressNetworkAdded)
+        server->emitNetworkAdded(path);
     return result;
 }
 

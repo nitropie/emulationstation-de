@@ -58,6 +58,7 @@ public:
         int reconnect {0};
         int propertySets {0};
         int networkSelected {0};
+        int unannouncedNetwork {0};
         // Every property name that was published in an Interface PropertiesChanged signal.
         std::vector<std::string> interfaceChangedProperties;
         std::vector<std::string> addedSsids;
@@ -107,6 +108,16 @@ public:
     void setDropAfterAssociate(const bool value);
     // Publish a new interface State and Scanning=false, as the daemon does on rfkill changes.
     void setInterfaceState(const std::string& state);
+    // Add a saved network after start() that is never announced with NetworkAdded, as if the
+    // frontend had missed the object. The daemon still lists it in Networks and answers its
+    // properties, so only a reconciliation against the live list can find it.
+    void addUnannouncedSavedNetwork(const std::string& path,
+                                    const std::string& ssid,
+                                    const std::string& keyMgmt,
+                                    const bool enabled);
+    // Withhold NetworkAdded for every network created after this call, as if the frontend had
+    // missed the object, so the block's SSID can only be learned from a property fetch.
+    void setSuppressNetworkAdded(const bool value);
     // Withhold the Interface.NetworkSelected signal, so the manager has to fall back to the
     // CurrentNetwork property. Used to exercise the fallback path; off by default.
     void setSuppressNetworkSelected(const bool value);
@@ -259,6 +270,7 @@ private:
     std::string mSelectFailure;
     bool mDropAfterAssociate {false};
     bool mSuppressNetworkSelected {false};
+    bool mSuppressNetworkAdded {false};
 
     bool mRfkillPolling {false};
     int mRfkillTransitionDelayMs {150};

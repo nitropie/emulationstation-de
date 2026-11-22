@@ -63,6 +63,7 @@ namespace
 
     constexpr std::uint64_t sConnectTimeoutUsec {25 * 1000 * 1000};
     constexpr std::uint64_t sDisconnectTimeoutUsec {5 * 1000 * 1000};
+    constexpr std::uint64_t sFinalizeReconcileTimeoutUsec {5 * 1000 * 1000};
     constexpr std::uint64_t sIpPollIntervalUsec {1000 * 1000};
     constexpr int sIpPollAttempts {15};
 
@@ -336,6 +337,8 @@ namespace
             currentNetwork,
             disconnectOld,
             finalize,
+            finalizeNetworks,
+            finalizeNetworkProperties,
             removeNetworkForForget,
             saveConfigForForget,
             disconnect,
@@ -991,6 +994,9 @@ namespace
                 mAttempt = Attempt {};
                 ++mAttemptSerial;
                 cancelConnectTimer();
+                mFinalizePaths.clear();
+                mFinalizePending.clear();
+                mFinalizeReconciling = false;
                 mState.clearPending(ssid);
                 mState.setLastError(std::string {});
             }
@@ -1095,15 +1101,58 @@ namespace
             if (!mAttempt.active || mAttempt.phase != Attempt::Phase::waitingAuth)
                 return;
 
-            cancelConnectTimer();
-
             mAttempt.phase = Attempt::Phase::finalizing;
             mFinalizeOps.clear();
             mFinalizeIndex = 0;
+            mFinalizePaths.clear();
+            mFinalizePending.clear();
+            mFinalizeReconciling = false;
 
             // Selecting a network makes wpa_supplicant mark the other blocks disabled in its
             // running configuration, so they are re-enabled in both cases. Only a network this
             // attempt created removes older duplicates or needs a SaveConfig.
+            if (mAttempt.createdNetwork) {
+                // The removal list must come from the daemon, not from the cached SSID map: a
+                // block that the frontend never saw (a dropped property reply, a reused object
+                // path) is still in the configuration and SaveConfig would persist it next to
+                // the new one. Ask for the live Networks list and resolve every unknown path
+                // before deciding.
+                mFinalizeReconciling = true;
+                cancelConnectTimer();
+                startPhaseTimer(sFinalizeReconcileTimeoutUsec);
+
+                sd_bus_message* message {nullptr};
+                if (sd_bus_message_new_method_call(mBus, &message, sService, mInterfacePath.c_str(),
+                                                   sPropertiesInterface, "Get") >= 0) {
+                    sd_bus_message_append(message, "ss", sInterfaceInterface, "Networks");
+                    send(message, Step::finalizeNetworks, mEpoch, mAttempt.serial, mInterfacePath,
+                         mAttempt.ssid);
+                    return;
+                }
+
+                mFinalizeReconciling = false;
+            }
+
+            cancelConnectTimer();
+            buildFinalizeOpsFromState();
+        }
+
+        // The cached view of the configuration. Used when the daemon does not answer the
+        // reconciliation query in time, so a silent daemon can never block the completion.
+        void buildFinalizeOpsFromState()
+        {
+            if (!mAttempt.active || mAttempt.phase != Attempt::Phase::finalizing)
+                return;
+
+            mFinalizeReconciling = false;
+            cancelConnectTimer();
+
+            mFinalizeOps.clear();
+            mFinalizeIndex = 0;
+            mFinalizePaths.clear();
+            mFinalizePending.clear();
+            mFinalizeReconciling = false;
+
             if (mAttempt.createdNetwork) {
                 for (const std::string& path : mState.savedNetworkPaths(mAttempt.ssid)) {
                     if (path != mAttempt.targetNetworkPath)
@@ -1125,6 +1174,35 @@ namespace
 
             if (mAttempt.createdNetwork)
                 mFinalizeOps.push_back({FinalizeOp::Kind::save, std::string {}});
+
+            startNextFinalizeOp();
+        }
+
+        // The authoritative list from the daemon, with the properties of every path that the
+        // cache did not know resolved in the meantime.
+        void buildFinalizeOpsFromLivePaths()
+        {
+            if (!mAttempt.active || mAttempt.phase != Attempt::Phase::finalizing)
+                return;
+
+            mFinalizeReconciling = false;
+            cancelConnectTimer();
+
+            mFinalizeOps.clear();
+            mFinalizeIndex = 0;
+            mFinalizePending.clear();
+
+            for (const std::string& path : mFinalizePaths) {
+                if (path == mAttempt.targetNetworkPath)
+                    continue;
+
+                if (mState.ssidForNetworkPath(path) == mAttempt.ssid)
+                    mFinalizeOps.push_back({FinalizeOp::Kind::remove, path});
+                else
+                    mFinalizeOps.push_back({FinalizeOp::Kind::enable, path});
+            }
+
+            mFinalizeOps.push_back({FinalizeOp::Kind::save, std::string {}});
 
             startNextFinalizeOp();
         }
@@ -1187,6 +1265,9 @@ namespace
             ++mAttemptSerial;
             mFinalizeOps.clear();
             mFinalizeIndex = 0;
+            mFinalizePaths.clear();
+            mFinalizePending.clear();
+            mFinalizeReconciling = false;
             cancelConnectTimer();
 
             mState.clearPending(ssid);
@@ -1219,6 +1300,9 @@ namespace
             ++mAttemptSerial;
             mFinalizeOps.clear();
             mFinalizeIndex = 0;
+            mFinalizePaths.clear();
+            mFinalizePending.clear();
+            mFinalizeReconciling = false;
             cancelConnectTimer();
 
             mState.clearPending(ssid);
@@ -1684,6 +1768,9 @@ namespace
             mAttempt = Attempt {};
             mFinalizeOps.clear();
             mFinalizeIndex = 0;
+            mFinalizePaths.clear();
+            mFinalizePending.clear();
+            mFinalizeReconciling = false;
             ++mAttemptSerial;
             cancelConnectTimer();
             cancelIpTimer();
@@ -2007,6 +2094,55 @@ namespace
                     break;
                 }
 
+                case Step::finalizeNetworks: {
+                    if (failed) {
+                        LOG(LogWarning) << "Wi-Fi: could not read the live network list: " << error;
+                        buildFinalizeOpsFromState();
+                        break;
+                    }
+
+                    std::vector<std::string> paths;
+                    if (!readVariantObjectPaths(message, paths)) {
+                        buildFinalizeOpsFromState();
+                        break;
+                    }
+
+                    mFinalizePaths = std::move(paths);
+                    mFinalizePending.clear();
+                    for (const std::string& path : mFinalizePaths) {
+                        if (!mState.ssidForNetworkPath(path).empty())
+                            continue;
+
+                        // The target is fetched too: if its NetworkAdded signal was missed,
+                        // this is what makes it a known saved network after the attempt. The
+                        // builder below still never removes or re-enables it.
+                        mFinalizePending.push_back(path);
+                        requestObjectProperties(path, sNetworkInterface,
+                                                Step::finalizeNetworkProperties);
+                    }
+
+                    if (mFinalizePending.empty())
+                        buildFinalizeOpsFromLivePaths();
+                    break;
+                }
+
+                case Step::finalizeNetworkProperties: {
+                    if (!failed) {
+                        WifiProperties properties;
+                        if (WifiMessageParser::readProperties(message, properties))
+                            applyNetwork(followUp.path, properties);
+                    }
+
+                    const auto pending {std::find(mFinalizePending.cbegin(),
+                                                  mFinalizePending.cend(), followUp.path)};
+                    if (pending != mFinalizePending.cend())
+                        mFinalizePending.erase(pending);
+
+                    if (mFinalizePending.empty())
+                        buildFinalizeOpsFromLivePaths();
+                    break;
+                }
+
                 case Step::finalize:
                     if (failed) {
                         LOG(LogWarning) << "Wi-Fi: a finalization call failed: " << error;
@@ -2129,6 +2265,10 @@ namespace
             if (manager->mAttempt.active &&
                 manager->mAttempt.phase == Attempt::Phase::disconnectingOld)
                 manager->maybeAdvanceAfterDisconnect(true);
+            else if (manager->mAttempt.active &&
+                     manager->mAttempt.phase == Attempt::Phase::finalizing &&
+                     manager->mFinalizeReconciling)
+                manager->buildFinalizeOpsFromState();
             else
                 manager->failAttempt(sConnectTimeoutMessage);
             return 0;
@@ -2318,6 +2458,10 @@ namespace
         std::uint64_t mAttemptSerial {0};
         std::vector<FinalizeOp> mFinalizeOps;
         std::size_t mFinalizeIndex {0};
+        // Reconciliation against the daemon's live Networks list before SaveConfig.
+        std::vector<std::string> mFinalizePaths;
+        std::vector<std::string> mFinalizePending;
+        bool mFinalizeReconciling {false};
 
         std::string mForgetSsid;
         std::string mForgetError;

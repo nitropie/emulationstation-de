@@ -136,6 +136,23 @@ namespace
         return false;
     }
 
+    int countNetworkBlocks(const std::string& config, const std::string& ssid)
+    {
+        int count {0};
+        const std::string marker {"network={"};
+        const std::string needle {"ssid=\"" + ssid + "\""};
+        std::size_t position {0};
+        while ((position = config.find(marker, position)) != std::string::npos) {
+            const std::size_t end {config.find('}', position)};
+            if (end == std::string::npos)
+                break;
+            if (config.find(needle, position) < end)
+                ++count;
+            position = end + 1;
+        }
+        return count;
+    }
+
     const WifiNetwork* findNetworkEntry(const std::shared_ptr<const WifiSnapshot>& snapshot,
                                         const std::string& ssid)
     {
@@ -910,6 +927,147 @@ TEST_CASE(wifiSavedNetworkFailureDoesNotRequestPasswordRetry)
     EXPECT(snapshot->failedSsid.empty());
     EXPECT(!snapshot->lastErrorNeedsPasswordRetry);
     EXPECT(hasSavedNetwork(snapshot, "Cafe"));
+}
+
+TEST_CASE(wifiPasswordChangeRemovesAnUnannouncedDuplicateBlock)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.addSavedCafe();
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->available && hasSavedNetwork(snapshot, "Cafe");
+    }));
+
+    // A block that the frontend never saw: no NetworkAdded, but the daemon still lists it and
+    // answers its properties. The cached SSID map cannot know it, so only the pre-save
+    // reconciliation can remove it.
+    const std::string ghost {"/fi/w1/wpa_supplicant1/Interfaces/1/Networks/7"};
+    fixture.server.addUnannouncedSavedNetwork(ghost, "Cafe", "WPA-PSK", true);
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().unannouncedNetwork == 1; }));
+
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe";
+    }));
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().saveConfig >= 1; }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.removedPaths.size() == 2);
+    EXPECT(std::find(calls.removedPaths.cbegin(), calls.removedPaths.cend(), ghost) !=
+           calls.removedPaths.cend());
+    EXPECT(std::find(calls.removedPaths.cbegin(), calls.removedPaths.cend(), sCafeNetworkPath) !=
+           calls.removedPaths.cend());
+    EXPECT(calls.removeCountAtSave == 2);
+
+    EXPECT(countNetworkBlocks(readFile(fixture.configPath), "Cafe") == 1);
+}
+
+TEST_CASE(wifiRepeatedPasswordChangeKeepsOneBlockPerSsid)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.addSavedCafe();
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->available && hasSavedNetwork(snapshot, "Cafe");
+    }));
+
+    // Replacing the saved credential once.
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe";
+    }));
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().saveConfig >= 1; }));
+    EXPECT(countNetworkBlocks(readFile(fixture.configPath), "Cafe") == 1);
+
+    // A failed attempt in between creates and removes its own block and must not duplicate the
+    // saved one.
+    fixture.manager->connectWithPassword("Cafe", sWrongPassphrase);
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        return fixture.snapshot()->lastError == "The Wi-Fi password was not accepted";
+    }));
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().removeNetwork >= 2; }));
+    EXPECT(countNetworkBlocks(readFile(fixture.configPath), "Cafe") == 1);
+
+    // Replacing it again after the failure.
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe";
+    }));
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().saveConfig >= 2; }));
+    EXPECT(countNetworkBlocks(readFile(fixture.configPath), "Cafe") == 1);
+
+    // Forgetting the network removes every block.
+    fixture.manager->forget("Cafe");
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && !hasSavedNetwork(snapshot, "Cafe");
+    }));
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().saveConfig >= 3; }));
+    EXPECT(countNetworkBlocks(readFile(fixture.configPath), "Cafe") == 0);
+}
+
+TEST_CASE(wifiCreatedNetworkIsSavedWhenNetworkAddedIsMissing)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    // The daemon creates the block and answers AddNetwork, but never announces it. Only the
+    // finalize reconciliation can learn the new block's SSID.
+    fixture.server.setSuppressNetworkAdded(true);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe";
+    }));
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().saveConfig >= 1; }));
+
+    // The reconciliation fetched the target's properties, so the frontend knows the block is
+    // saved instead of showing SECURED and prompting again.
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return hasSavedNetwork(fixture.snapshot(), "Cafe"); }));
+
+    // A plain CONNECT now selects the existing block instead of adding another one.
+    fixture.server.setSuppressNetworkAdded(false);
+    fixture.manager->connect("Cafe");
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe" &&
+               fixture.server.calls().selectNetwork >= 2;
+    }));
+
+    EXPECT(fixture.server.calls().addNetwork == 1);
 }
 
 TEST_CASE(wifiPasswordChangeReplacesDuplicatesAfterSuccess)

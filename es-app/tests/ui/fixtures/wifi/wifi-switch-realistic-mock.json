@@ -11,18 +11,14 @@
       "ssid": "Cafe",
       "signal": -40,
       "frequency": 2412,
-      "keyMgmt": [
-        "WPA-PSK"
-      ]
+      "keyMgmt": ["WPA-PSK"]
     },
     {
       "path": "/fi/w1/wpa_supplicant1/Interfaces/1/BSSs/2",
       "ssid": "Home",
       "signal": -50,
       "frequency": 2437,
-      "keyMgmt": [
-        "WPA-PSK"
-      ]
+      "keyMgmt": ["WPA-PSK"]
     }
   ],
   "networks": [

@@ -99,6 +99,16 @@ def base_environment(home, appdata, run_dir):
     return env
 
 
+def count_network_blocks(text, ssid):
+    """Counts the network={} blocks for one SSID in a wpa_supplicant configuration."""
+    count = 0
+    for chunk in text.split("network={")[1:]:
+        block = chunk.split("}", 1)[0]
+        if f'ssid="{ssid}"' in block:
+            count += 1
+    return count
+
+
 def remove_tree(path):
     """Removes a run directory after making every entry writable.
 
@@ -506,6 +516,12 @@ def main():
                             fail(f"the persisted Wi-Fi configuration does not contain {required!r}")
                     if wifi.get("configEmpty") and config_text.strip():
                         fail(f"{wifi.get('config', 'imperative.conf')} is not empty")
+                    for ssid, expected in wifi.get("configBlocks", {}).items():
+                        actual = count_network_blocks(config_text, ssid)
+                        if actual != expected:
+                            fail(
+                                f"{wifi.get('config', 'imperative.conf')} has {actual} network "
+                                f"blocks for {ssid!r}, expected {expected}")
                     wifi_state["config"] = config_text
                 elif wifi.get("expectConfig") and not wifi.get("configEmpty"):
                     fail(f"{wifi.get('config', 'imperative.conf')} was not written")

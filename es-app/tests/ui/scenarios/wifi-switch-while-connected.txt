@@ -19,6 +19,11 @@ controller a up
 
 wait-text "CONNECTED TO Home" 900
 wait-text "CAFE" 600
+
+# The scan results can be published before the saved networks are known, so wait for the settled
+# SAVED label instead of capturing a transient SECURED row.
+wait-text "SAVED" 600
+assert-absent "SECURED"
 capture wifi-switch-before
 
 # POWER, summary, SCAN FOR NETWORKS, HOME (connected), CAFE.
@@ -42,9 +47,12 @@ controller down up
 controller a down
 controller a up
 
-# The fake keeps associating for three seconds, so the pending summary is stable.
+# The fake keeps associating for three seconds, so the pending summary is stable. Home can still
+# read CONNECTED until the disconnect is published, so wait for the settled SAVED row before
+# capturing.
 wait-text "CONNECTING TO Cafe" 500
 assert-text "CONNECTING"
+wait-text "SAVED" 500
 capture wifi-switching
 
 wait-text "CONNECTED TO Cafe" 30000

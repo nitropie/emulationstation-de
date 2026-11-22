@@ -300,9 +300,24 @@ void FakeWpaSupplicantServer::setAssociationDelayMs(const int milliseconds)
     mAssociationDelayMs = milliseconds;
 }
 
+void FakeWpaSupplicantServer::setAuthFailureDelayMs(const int milliseconds)
+{
+    mAuthFailureDelayMs = milliseconds;
+}
+
 void FakeWpaSupplicantServer::setScanFailure(const std::string& errorName)
 {
     mScanFailure = errorName;
+}
+
+void FakeWpaSupplicantServer::setSelectFailure(const std::string& errorName)
+{
+    mSelectFailure = errorName;
+}
+
+void FakeWpaSupplicantServer::setDropAfterAssociate(const bool value)
+{
+    mDropAfterAssociate = value;
 }
 
 void FakeWpaSupplicantServer::setInterfaceState(const std::string& state)
@@ -813,12 +828,34 @@ void FakeWpaSupplicantServer::selectNetwork(const std::string& path)
                          network->second.psk == expected->second};
 
     if (!accepted) {
-        mState = "disconnected";
         mDisconnectReason = mNegativeDisconnectReasons ? -15 : 15;
+
+        if (mAuthFailureDelayMs > 0) {
+            if (mAuthFailureTimer != nullptr) {
+                sd_event_source_disable_unref(mAuthFailureTimer);
+                mAuthFailureTimer = nullptr;
+            }
+
+            uint64_t now {0};
+            sd_event_now(mEvent, CLOCK_MONOTONIC, &now);
+            if (sd_event_add_time(mEvent, &mAuthFailureTimer, CLOCK_MONOTONIC,
+                                  now + mAuthFailureDelayMs * 1000, 0, onAuthFailureTimeout,
+                                  this) < 0)
+                mAuthFailureTimer = nullptr;
+            return;
+        }
+
+        completeAuthFailure();
+        return;
+    }
+
+    if (mDropAfterAssociate) {
+        mState = "disconnected";
+        mDisconnectReason = 0;
 
         WifiProperties failed;
         failed["State"] = std::string {"disconnected"};
-        failed["DisconnectReason"] = std::int64_t {mDisconnectReason};
+        failed["DisconnectReason"] = std::int64_t {0};
         emitInterfaceProperties(failed);
         return;
     }
@@ -839,6 +876,25 @@ void FakeWpaSupplicantServer::selectNetwork(const std::string& path)
     }
 
     completeSelection(path);
+}
+
+void FakeWpaSupplicantServer::completeAuthFailure()
+{
+    mState = "disconnected";
+
+    WifiProperties failed;
+    failed["State"] = std::string {"disconnected"};
+    failed["DisconnectReason"] = std::int64_t {mDisconnectReason};
+    emitInterfaceProperties(failed);
+}
+
+int FakeWpaSupplicantServer::onAuthFailureTimeout(sd_event_source* source, uint64_t, void* userdata)
+{
+    auto* server {static_cast<FakeWpaSupplicantServer*>(userdata)};
+    sd_event_source_disable_unref(source);
+    server->mAuthFailureTimer = nullptr;
+    server->completeAuthFailure();
+    return 0;
 }
 
 void FakeWpaSupplicantServer::completeSelection(const std::string& path)
@@ -1235,7 +1291,9 @@ int FakeWpaSupplicantServer::onRemoveNetwork(sd_bus_message* message, void* user
     return result;
 }
 
-int FakeWpaSupplicantServer::onSelectNetwork(sd_bus_message* message, void* userdata, sd_bus_error*)
+int FakeWpaSupplicantServer::onSelectNetwork(sd_bus_message* message,
+                                             void* userdata,
+                                             sd_bus_error* error)
 {
     auto* server {static_cast<FakeWpaSupplicantServer*>(userdata)};
 
@@ -1248,6 +1306,9 @@ int FakeWpaSupplicantServer::onSelectNetwork(sd_bus_message* message, void* user
         ++server->mCalls.selectNetwork;
         server->mCalls.selectedPaths.push_back(path);
     }
+
+    if (!server->mSelectFailure.empty())
+        return sd_bus_error_set(error, server->mSelectFailure.c_str(), "Select failed");
 
     const int result {sd_bus_reply_method_return(message, nullptr)};
     server->selectNetwork(path);

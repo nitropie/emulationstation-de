@@ -94,8 +94,14 @@ public:
     // Keep a selected network in the associating state for this many milliseconds before
     // publishing completed, so the UI can show CONNECTING TO.
     void setAssociationDelayMs(const int milliseconds);
+    // Delay the rejected-credential transition by this many milliseconds (0 = immediate).
+    void setAuthFailureDelayMs(const int milliseconds);
     // Fail every Scan call with this error name (empty clears the failure).
     void setScanFailure(const std::string& errorName);
+    // Fail SelectNetwork with this error name (empty clears the failure).
+    void setSelectFailure(const std::string& errorName);
+    // Go back to disconnected right after associating, as a failed handshake would.
+    void setDropAfterAssociate(const bool value);
     // Publish a new interface State and Scanning=false, as the daemon does on rfkill changes.
     void setInterfaceState(const std::string& state);
     // Watch ES_DE_WIFI_RFKILL_PATH and translate soft-block changes into interface state
@@ -237,7 +243,13 @@ private:
     int mAssociationDelayMs {0};
     sd_event_source* mAssociationTimer {nullptr};
     std::string mAssociationPath;
+    int mAuthFailureDelayMs {0};
+    sd_event_source* mAuthFailureTimer {nullptr};
+    void completeAuthFailure();
+    static int onAuthFailureTimeout(sd_event_source* source, uint64_t, void* userdata);
     std::string mScanFailure;
+    std::string mSelectFailure;
+    bool mDropAfterAssociate {false};
 
     bool mRfkillPolling {false};
     int mRfkillTransitionDelayMs {150};

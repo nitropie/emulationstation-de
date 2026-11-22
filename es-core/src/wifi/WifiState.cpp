@@ -143,14 +143,23 @@ void WifiState::setPending(const std::string& ssid, const WifiOp op)
 
 void WifiState::clearPending(const std::string& ssid) { mPending.erase(ssid); }
 
-void WifiState::setLastError(const std::string& error)
+void WifiState::setLastError(const std::string& error,
+                             const std::string& failedSsid,
+                             const bool needsPasswordRetry)
 {
     mLastError = error;
 
     // The sequence only moves when a failure is published, so a screen can tell a new identical
     // failure from the one it has already shown.
-    if (!error.empty())
+    if (!error.empty()) {
+        mFailedSsid = failedSsid;
+        mLastErrorNeedsPasswordRetry = needsPasswordRetry && !failedSsid.empty();
         ++mErrorSequence;
+    }
+    else {
+        mFailedSsid.clear();
+        mLastErrorNeedsPasswordRetry = false;
+    }
 }
 
 void WifiState::clear()
@@ -168,6 +177,8 @@ void WifiState::clear()
     mActiveSsid.clear();
     mIpAddress.clear();
     mLastError.clear();
+    mFailedSsid.clear();
+    mLastErrorNeedsPasswordRetry = false;
     mErrorSequence = 0;
 }
 
@@ -218,6 +229,8 @@ WifiSnapshot WifiState::toSnapshot(const std::uint64_t sequence) const
     snapshot.activeSsid = mActiveSsid;
     snapshot.ipAddress = mIpAddress;
     snapshot.lastError = mLastError;
+    snapshot.failedSsid = mFailedSsid;
+    snapshot.lastErrorNeedsPasswordRetry = mLastErrorNeedsPasswordRetry;
     snapshot.errorSequence = mErrorSequence;
 
     // wpa_supplicant can hold several Network objects for one SSID after a failed connection

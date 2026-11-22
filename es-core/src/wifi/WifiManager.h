@@ -81,6 +81,9 @@ struct WifiSnapshot {
     std::vector<WifiNetwork> networks;
     // The last failure, in a form that can be shown to the user. Empty when there is none.
     std::string lastError;
+    // The network whose password failed, when the last error can be retried with a new password.
+    std::string failedSsid;
+    bool lastErrorNeedsPasswordRetry {false};
     // Increases every time a new failure is published, even when its text is identical to the
     // previous one, so a repeated error is not mistaken for the one already shown.
     std::uint64_t errorSequence {0};

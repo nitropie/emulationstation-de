@@ -610,6 +610,8 @@ TEST_CASE(wifiFailedPasswordKeepsExistingSavedBlock)
     EXPECT(hasSavedNetwork(snapshot, "Home"));
     EXPECT(snapshot->lastError == "The Wi-Fi password was not accepted");
     EXPECT(!contains(snapshot->lastError, sWrongPassphrase));
+    EXPECT(snapshot->failedSsid == "Cafe");
+    EXPECT(snapshot->lastErrorNeedsPasswordRetry);
 
     std::error_code error;
     if (std::filesystem::exists(fixture.configPath)) {
@@ -660,6 +662,41 @@ TEST_CASE(wifiWrongPasswordOnSavedNetworkPreservesSavedBlock)
         EXPECT(calls.removedPaths.front() != sCafeNetworkPath);
     }
     EXPECT(hasSavedNetwork(fixture.snapshot(), "Cafe"));
+}
+
+TEST_CASE(wifiSavedNetworkFailureDoesNotRequestPasswordRetry)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.addSavedCafe();
+    fixture.server.setDropAfterAssociate(true);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        return fixture.snapshot() != nullptr && fixture.snapshot()->available &&
+               hasSavedNetwork(fixture.snapshot(), "Cafe");
+    }));
+
+    // No password prompt was involved, so the failure must not offer a password retry.
+    fixture.manager->connect("Cafe");
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return !fixture.snapshot()->lastError.empty(); }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.addNetwork == 0);
+    EXPECT(calls.selectNetwork == 1);
+    EXPECT(calls.removeNetwork == 0);
+    EXPECT(calls.saveConfig == 0);
+    EXPECT(calls.reconnect == 0);
+
+    const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+    EXPECT(snapshot->failedSsid.empty());
+    EXPECT(!snapshot->lastErrorNeedsPasswordRetry);
+    EXPECT(hasSavedNetwork(snapshot, "Cafe"));
 }
 
 TEST_CASE(wifiPasswordChangeReplacesDuplicatesAfterSuccess)
@@ -771,6 +808,125 @@ TEST_CASE(wifiInvalidPassphraseFailsBeforeDbus)
 
     EXPECT(fixture.server.calls().addNetwork == 0);
     EXPECT(fixture.server.calls().selectNetwork == 0);
+
+    const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+    EXPECT(snapshot->failedSsid == "Cafe");
+    EXPECT(snapshot->lastErrorNeedsPasswordRetry);
+}
+
+TEST_CASE(wifiSelectErrorDuringPasswordAttemptRequestsRetry)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.server.setSelectFailure("fi.w1.wpa_supplicant1.InvalidArgs");
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return !fixture.snapshot()->lastError.empty(); }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.addNetwork == 1);
+    EXPECT(calls.selectNetwork == 1);
+    EXPECT(calls.removeNetwork == 1);
+    EXPECT(calls.saveConfig == 0);
+    EXPECT(calls.reconnect == 0);
+
+    const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+    EXPECT(snapshot->lastError == "The network settings were not accepted");
+    EXPECT(snapshot->failedSsid == "Cafe");
+    EXPECT(snapshot->lastErrorNeedsPasswordRetry);
+}
+
+TEST_CASE(wifiDropDuringPasswordAttemptRequestsRetry)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.server.setDropAfterAssociate(true);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return !fixture.snapshot()->lastError.empty(); }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.addNetwork == 1);
+    EXPECT(calls.selectNetwork == 1);
+    EXPECT(calls.removeNetwork == 1);
+    EXPECT(calls.saveConfig == 0);
+
+    const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+    EXPECT(snapshot->lastError == "The connection attempt failed");
+    EXPECT(snapshot->failedSsid == "Cafe");
+    EXPECT(snapshot->lastErrorNeedsPasswordRetry);
+}
+
+TEST_CASE(wifiTimeoutDuringPasswordAttemptRequestsRetry)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.server.setAssociationDelayMs(60000);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return !fixture.snapshot()->lastError.empty(); }, 30000));
+
+    const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+    EXPECT(snapshot->lastError == "The connection attempt timed out");
+    EXPECT(snapshot->failedSsid == "Cafe");
+    EXPECT(snapshot->lastErrorNeedsPasswordRetry);
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().removeNetwork == 1; }));
+    EXPECT(fixture.server.calls().saveConfig == 0);
+}
+
+TEST_CASE(wifiOpenNetworkFailureDoesNotRequestPasswordRetry)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.server.addBss(sOpenCafeBssPath, {"OpenCafe", -45, 2412, {"NONE"}});
+    fixture.server.setDropAfterAssociate(true);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        return fixture.snapshot() != nullptr && fixture.snapshot()->available &&
+               containsNetwork(fixture.snapshot(), "OpenCafe");
+    }));
+
+    fixture.manager->connect("OpenCafe");
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return !fixture.snapshot()->lastError.empty(); }));
+
+    const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+    EXPECT(snapshot->failedSsid.empty());
+    EXPECT(!snapshot->lastErrorNeedsPasswordRetry);
+    EXPECT(fixture.server.calls().removeNetwork == 1);
+    EXPECT(fixture.server.calls().saveConfig == 0);
 }
 
 TEST_CASE(wifiConnectToUnsavedOpenNetwork)

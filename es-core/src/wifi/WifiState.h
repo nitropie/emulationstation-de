@@ -71,7 +71,11 @@ public:
     // the snapshot. The pending operation is keyed by SSID.
     void setPending(const std::string& ssid, const WifiOp op);
     void clearPending(const std::string& ssid);
-    void setLastError(const std::string& error);
+    // Records the last failure. failedSsid is the network whose password failed, and
+    // needsPasswordRetry says the UI may offer a password prompt for it.
+    void setLastError(const std::string& error,
+                      const std::string& failedSsid = std::string {},
+                      const bool needsPasswordRetry = false);
 
     // The object paths of the saved Network objects with this SSID. wpa_supplicant can hold more
     // than one after a failed connection attempt, which is what the connect path cleans up.
@@ -137,6 +141,8 @@ private:
     std::string mActiveSsid;
     std::string mIpAddress;
     std::string mLastError;
+    std::string mFailedSsid;
+    bool mLastErrorNeedsPasswordRetry {false};
     std::uint64_t mErrorSequence {0};
 };
 

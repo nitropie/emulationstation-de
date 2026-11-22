@@ -337,6 +337,35 @@ TEST_CASE(errorsDoNotEchoCredentials)
     EXPECT(message.find("hunter2") == std::string::npos);
 }
 
+TEST_CASE(passwordFailuresCarryRetryInformation)
+{
+    WifiState state;
+    state.setLastError("The Wi-Fi password was not accepted", "Cafe", true);
+
+    WifiSnapshot snapshot {state.toSnapshot(1)};
+    EXPECT(snapshot.failedSsid == "Cafe");
+    EXPECT(snapshot.lastErrorNeedsPasswordRetry);
+
+    // A retry flag without an SSID cannot open a prompt.
+    state.setLastError("The scan failed", std::string {}, true);
+    snapshot = state.toSnapshot(2);
+    EXPECT(snapshot.failedSsid.empty());
+    EXPECT(!snapshot.lastErrorNeedsPasswordRetry);
+
+    // Clearing the error clears the retry information too.
+    state.setLastError("The Wi-Fi password was not accepted", "Cafe", true);
+    state.setLastError(std::string {});
+    snapshot = state.toSnapshot(3);
+    EXPECT(snapshot.failedSsid.empty());
+    EXPECT(!snapshot.lastErrorNeedsPasswordRetry);
+
+    state.setLastError("The Wi-Fi password was not accepted", "Cafe", true);
+    state.clear();
+    snapshot = state.toSnapshot(4);
+    EXPECT(snapshot.failedSsid.empty());
+    EXPECT(!snapshot.lastErrorNeedsPasswordRetry);
+}
+
 TEST_CASE(repeatedErrorsAdvanceTheErrorSequence)
 {
     WifiState state;

@@ -64,8 +64,24 @@ void GuiWifiSettings::update(int deltaTime)
     if (snapshot->errorSequence != mErrorSequence) {
         mErrorSequence = snapshot->errorSequence;
         mLastError = snapshot->lastError;
-        if (!mLastError.empty())
-            mWindow->pushGui(new GuiMsgBox(Utils::String::toUpper(mLastError)));
+        if (!mLastError.empty()) {
+            // A rejected passphrase offers OK -> the empty password prompt for the same network.
+            // B always just closes the dialog, so the user can cancel the attempt.
+            if (snapshot->lastErrorNeedsPasswordRetry && !snapshot->failedSsid.empty() &&
+                snapshot->powered) {
+                const std::string retrySsid {snapshot->failedSsid};
+                mWindow->pushGui(
+                    new GuiMsgBox(Utils::String::toUpper(mLastError), _("OK"), [this, retrySsid] {
+                        const std::shared_ptr<const WifiSnapshot> current {
+                            WifiManager::getInstance().getSnapshot()};
+                        if (current != nullptr && current->powered)
+                            openPasswordPrompt(retrySsid);
+                    }));
+            }
+            else {
+                mWindow->pushGui(new GuiMsgBox(Utils::String::toUpper(mLastError)));
+            }
+        }
     }
 
     if (snapshot->sequence == mSequence)

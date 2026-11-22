@@ -707,7 +707,8 @@ namespace
         bool beginAttempt(const std::string& ssid,
                           std::string passphrase,
                           const bool createdNetwork,
-                          const std::string& targetNetworkPath)
+                          const std::string& targetNetworkPath,
+                          const bool hadPassword = false)
         {
             if (mAttempt.active)
                 return false;
@@ -721,6 +722,7 @@ namespace
             mAttempt.ssid = ssid;
             mAttempt.passphrase = std::move(passphrase);
             mAttempt.createdNetwork = createdNetwork;
+            mAttempt.hadPassword = hadPassword;
             mAttempt.targetNetworkPath = targetNetworkPath;
 
             mState.setPending(ssid, WifiOp::connecting);
@@ -805,13 +807,13 @@ namespace
             // passphrase is always used, and nothing existing is removed before it authenticates.
             const bool open {target != nullptr && target->security == WifiSecurity::open};
             if (!open && !WifiState::validatePassphrase(passphrase)) {
-                mState.setLastError(WifiState::passphraseError());
+                mState.setLastError(WifiState::passphraseError(), ssid, true);
                 mState.clearPending(ssid);
                 publish();
                 return;
             }
 
-            beginAttempt(ssid, passphrase, true, std::string {});
+            beginAttempt(ssid, passphrase, true, std::string {}, true);
         }
 
         void disconnectOldNetwork()
@@ -959,6 +961,7 @@ namespace
                 ++mAttemptSerial;
                 cancelConnectTimer();
                 mState.clearPending(ssid);
+                mState.setLastError(std::string {});
             }
 
             sd_bus_message* message {nullptr};
@@ -1174,6 +1177,7 @@ namespace
 
             const std::string ssid {mAttempt.ssid};
             const std::string createdPath {mAttempt.createdNetworkPath};
+            const bool hadPassword {mAttempt.hadPassword};
 
             mAttempt = Attempt {};
             ++mAttemptSerial;
@@ -1182,7 +1186,7 @@ namespace
             cancelConnectTimer();
 
             mState.clearPending(ssid);
-            mState.setLastError(reason);
+            mState.setLastError(reason, hadPassword ? ssid : std::string {}, hadPassword);
             publish();
 
             LOG(LogInfo) << "Wi-Fi: the connection attempt for '" << ssid << "' failed: " << reason;
@@ -2135,6 +2139,7 @@ namespace
             std::string ssid;
             std::string passphrase;
             bool createdNetwork {false};
+            bool hadPassword {false};
             Phase phase {Phase::none};
             std::string targetNetworkPath;
             std::string createdNetworkPath;

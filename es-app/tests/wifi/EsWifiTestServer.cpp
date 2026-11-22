@@ -132,6 +132,9 @@ int main(int argc, char** argv)
     if (document.HasMember("associationDelayMs") && document["associationDelayMs"].IsInt())
         server.setAssociationDelayMs(document["associationDelayMs"].GetInt());
 
+    if (document.HasMember("authFailureDelayMs") && document["authFailureDelayMs"].IsInt())
+        server.setAuthFailureDelayMs(document["authFailureDelayMs"].GetInt());
+
     if (document.HasMember("scanFailure") && document["scanFailure"].IsString())
         server.setScanFailure(document["scanFailure"].GetString());
 

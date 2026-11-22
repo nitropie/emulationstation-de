@@ -212,15 +212,20 @@ def stage_profile(fixture_root, run_dir, profile):
     return home, appdata, env
 
 
-def start_wifi_server(binary, mock, config_path):
+def start_wifi_server(binary, mock, config_path, rfkill_path=None):
     """Starts the fake wpa_supplicant service and waits until it owns the bus name."""
     if not os.access(binary, os.X_OK):
         fail(f"the Wi-Fi test server {binary} is not executable")
     if not os.path.isfile(mock):
         fail(f"missing Wi-Fi mock configuration {mock}")
 
+    server_env = dict(os.environ)
+    if rfkill_path:
+        server_env["ES_DE_WIFI_RFKILL_PATH"] = rfkill_path
+
     process = subprocess.Popen([binary, "--config", mock, "--config-path", config_path],
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                               env=server_env)
     deadline = time.time() + 15
     while time.time() < deadline:
         if process.poll() is not None:
@@ -460,7 +465,8 @@ def main():
                 wifi_server = start_wifi_server(
                     args.wifi_server,
                     os.path.join(fixture_root, wifi.get("mock", "wifi-mock.json")),
-                    config_path)
+                    config_path,
+                    rfkill_path)
 
             launch_captures = []
             try:

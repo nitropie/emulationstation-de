@@ -1,0 +1,37 @@
+wait-text "Super Nintendo Entertainment System" 600
+key escape down
+key escape up
+wait-text "MAIN MENU" 200
+
+# SCRAPER, UI SETTINGS, SOUND SETTINGS, INPUT DEVICE SETTINGS, BLUETOOTH, WI-FI.
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller a down
+controller a up
+
+wait-text "CAFE" 600
+wait-frames 30
+
+# POWER, summary, SCAN FOR NETWORKS.
+controller down down
+controller down up
+controller down down
+controller down up
+controller a down
+controller a up
+
+# An explicit user scan failure is still reported.
+wait-text "THE SCAN FAILED" 900
+capture wifi-scan-error-shown
+controller a down
+controller a up
+wait-frames 30
+quit

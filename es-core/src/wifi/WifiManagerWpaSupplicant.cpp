@@ -324,6 +324,7 @@ namespace
             bssProperties,
             networkProperties,
             scan,
+            autoScan,
             addNetwork,
             selectNetwork,
             disconnectOld,
@@ -678,13 +679,12 @@ namespace
             mState.setPowered(powered);
             publish();
 
-            // A radio that just came back cannot be scanned by wpa_supplicant until it has
-            // re-enabled its interface, so the scan is attempted here as well.
-            if (powered && !mInterfacePath.empty())
-                performStartScan();
+            // The scan is started by the interface_disabled -> active transition in
+            // applyInterfaceProperties(). Scanning right after the rfkill write races the daemon,
+            // which still reports interface_disabled and rejects the call with InterfaceDisabled.
         }
 
-        void performStartScan()
+        void performStartScan(const bool userInitiated = true)
         {
             if (!hasInterface())
                 return;
@@ -700,7 +700,8 @@ namespace
             sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
             appendStringProperty(message, "Type", "active");
             sd_bus_message_close_container(message);
-            send(message, Step::scan, mEpoch, 0, mInterfacePath, std::string {});
+            send(message, userInitiated ? Step::scan : Step::autoScan, mEpoch, 0, mInterfacePath,
+                 std::string {});
         }
 
         bool beginAttempt(const std::string& ssid,
@@ -1300,7 +1301,7 @@ namespace
             // and a scan is the only way to fill the list again.
             if (hasState && previousState == "interface_disabled" &&
                 state != "interface_disabled" && mRadioPowered) {
-                performStartScan();
+                performStartScan(false);
             }
 
             syncActiveConnection();
@@ -1812,6 +1813,12 @@ namespace
                 case Step::scan:
                     if (failed)
                         setError(error);
+                    break;
+
+                case Step::autoScan:
+                    if (failed)
+                        LOG(LogInfo)
+                            << "Wi-Fi: the automatic scan after power-on was rejected: " << error;
                     break;
 
                 case Step::selectNetwork:

@@ -19,6 +19,7 @@
 #include "wifi/WifiMessageParser.h"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -93,6 +94,13 @@ public:
     // Keep a selected network in the associating state for this many milliseconds before
     // publishing completed, so the UI can show CONNECTING TO.
     void setAssociationDelayMs(const int milliseconds);
+    // Fail every Scan call with this error name (empty clears the failure).
+    void setScanFailure(const std::string& errorName);
+    // Publish a new interface State and Scanning=false, as the daemon does on rfkill changes.
+    void setInterfaceState(const std::string& state);
+    // Watch ES_DE_WIFI_RFKILL_PATH and translate soft-block changes into interface state
+    // transitions after this delay, for the native UI power-on race. Off by default.
+    void setRfkillPolling(const bool enabled, const int transitionDelayMs);
 
     // Starts the service and acquires fi.w1.wpa_supplicant1 on the session bus.
     bool start();
@@ -229,8 +237,22 @@ private:
     int mAssociationDelayMs {0};
     sd_event_source* mAssociationTimer {nullptr};
     std::string mAssociationPath;
+    std::string mScanFailure;
+
+    bool mRfkillPolling {false};
+    int mRfkillTransitionDelayMs {150};
+    int mRfkillFd {-1};
+    int mPendingSoft {-1};
+    int mLastSoft {-1};
+    std::chrono::steady_clock::time_point mPendingSince;
+    std::chrono::steady_clock::time_point mRejectScanUntil;
+    sd_event_source* mRfkillTimer {nullptr};
+
     void completeSelection(const std::string& path);
     static int onAssociationTimeout(sd_event_source* source, uint64_t, void* userdata);
+    void applyInterfaceState(const std::string& state);
+    void pollRfkillOnce();
+    static int onRfkillPoll(sd_event_source* source, uint64_t, void* userdata);
 
     struct HeldAddNetwork {
         sd_bus_message* message {nullptr};

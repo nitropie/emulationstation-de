@@ -132,6 +132,18 @@ int main(int argc, char** argv)
     if (document.HasMember("associationDelayMs") && document["associationDelayMs"].IsInt())
         server.setAssociationDelayMs(document["associationDelayMs"].GetInt());
 
+    if (document.HasMember("scanFailure") && document["scanFailure"].IsString())
+        server.setScanFailure(document["scanFailure"].GetString());
+
+    if (document.HasMember("rfkillPoll") && document["rfkillPoll"].IsBool() &&
+        document["rfkillPoll"].GetBool()) {
+        const int delay {document.HasMember("rfkillTransitionDelayMs") &&
+                                 document["rfkillTransitionDelayMs"].IsInt() ?
+                             document["rfkillTransitionDelayMs"].GetInt() :
+                             150};
+        server.setRfkillPolling(true, delay);
+    }
+
     if (document.HasMember("connected") && document["connected"].IsObject()) {
         const auto& connected {document["connected"]};
         if (connected.HasMember("network") && connected.HasMember("bss")) {

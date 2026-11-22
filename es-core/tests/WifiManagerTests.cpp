@@ -316,6 +316,64 @@ TEST_CASE(wifiInterfaceDiscoverySkipsP2pDevices)
     }
 }
 
+TEST_CASE(wifiPowerOnDoesNotReportScanErrorOnTransientDisabled)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        return fixture.snapshot() != nullptr && fixture.snapshot()->available &&
+               containsNetwork(fixture.snapshot(), "Cafe");
+    }));
+
+    // A soft block leaves the daemon reporting interface_disabled.
+    fixture.server.setInterfaceState("interface_disabled");
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] { return !fixture.snapshot()->powered; }));
+
+    fixture.manager->setPowered(true);
+
+    // The fixed power-on path does not scan while the daemon still reports the disabled
+    // interface, so the transient rejection cannot surface as an error.
+    std::this_thread::sleep_for(std::chrono::milliseconds {200});
+    EXPECT(fixture.server.calls().scan == 0);
+    EXPECT(fixture.snapshot()->lastError.empty());
+    EXPECT(fixture.snapshot()->errorSequence == 0);
+
+    // Once the daemon leaves interface_disabled the automatic scan runs and succeeds.
+    fixture.server.setInterfaceState("disconnected");
+    EXPECT(
+        FakeWpaSupplicantServer::waitFor([&fixture] { return fixture.server.calls().scan >= 1; }));
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return containsNetwork(fixture.snapshot(), "Cafe"); }));
+    EXPECT(fixture.snapshot()->lastError.empty());
+    EXPECT(fixture.snapshot()->errorSequence == 0);
+}
+
+TEST_CASE(wifiExplicitScanFailureReportsError)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.server.setScanFailure("fi.w1.wpa_supplicant1.Interface.ScanError");
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+
+    fixture.manager->startScan();
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return !fixture.snapshot()->lastError.empty(); }));
+    EXPECT(fixture.snapshot()->lastError == "The scan failed");
+    EXPECT(fixture.snapshot()->errorSequence > 0);
+}
+
 TEST_CASE(wifiRfkillPowerWritesEventsAndScans)
 {
     // A regular file gives the test its own read offset, so the manager cannot consume the event
@@ -341,13 +399,21 @@ TEST_CASE(wifiRfkillPowerWritesEventsAndScans)
 
     EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] { return !fixture.snapshot()->powered; }));
 
+    // The daemon disables the interface on a soft block.
+    fixture.server.setInterfaceState("interface_disabled");
+
     fixture.manager->setPowered(true);
 
     EXPECT(readRfkillEventAt(fixture.rfkillFd, event, sizeof(event)));
     EXPECT(event.type == RFKILL_TYPE_WLAN);
     EXPECT(event.soft == 0);
 
-    // Unblocking the radio triggers a scan once the interface is back.
+    // No scan is sent while the daemon still reports the interface as disabled.
+    std::this_thread::sleep_for(std::chrono::milliseconds {100});
+    EXPECT(fixture.server.calls().scan == 0);
+
+    // The disabled -> active transition triggers the automatic scan.
+    fixture.server.setInterfaceState("disconnected");
     EXPECT(
         FakeWpaSupplicantServer::waitFor([&fixture] { return fixture.server.calls().scan >= 1; }));
 }

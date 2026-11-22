@@ -16,6 +16,7 @@
 #include <systemd/sd-event.h>
 
 #include <fcntl.h>
+#include <linux/rfkill.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/stat.h>
@@ -299,6 +300,87 @@ void FakeWpaSupplicantServer::setAssociationDelayMs(const int milliseconds)
     mAssociationDelayMs = milliseconds;
 }
 
+void FakeWpaSupplicantServer::setScanFailure(const std::string& errorName)
+{
+    mScanFailure = errorName;
+}
+
+void FakeWpaSupplicantServer::setInterfaceState(const std::string& state)
+{
+    post([this, state] { applyInterfaceState(state); });
+}
+
+void FakeWpaSupplicantServer::setRfkillPolling(const bool enabled, const int transitionDelayMs)
+{
+    mRfkillPolling = enabled;
+    mRfkillTransitionDelayMs = transitionDelayMs;
+}
+
+void FakeWpaSupplicantServer::applyInterfaceState(const std::string& state)
+{
+    mState = state;
+
+    WifiProperties changed;
+    changed["State"] = state;
+    changed["Scanning"] = false;
+    emitInterfaceProperties(changed);
+}
+
+void FakeWpaSupplicantServer::pollRfkillOnce()
+{
+    if (mRfkillFd < 0)
+        return;
+
+    // The frontend appends one rfkill_event per write, so read the last complete event instead
+    // of streaming from an offset the writer never shares.
+    struct stat status {};
+    if (fstat(mRfkillFd, &status) < 0 || status.st_size < static_cast<off_t>(sizeof(rfkill_event)))
+        return;
+
+    struct rfkill_event event {};
+    if (pread(mRfkillFd, &event, sizeof(event),
+              status.st_size - static_cast<off_t>(sizeof(event))) !=
+        static_cast<ssize_t>(sizeof(event)))
+        return;
+    if (event.type != RFKILL_TYPE_WLAN || event.soft == mLastSoft)
+        return;
+
+    mLastSoft = event.soft;
+    mPendingSoft = event.soft;
+    mPendingSince = std::chrono::steady_clock::now();
+    if (event.soft == 0) {
+        // Until the daemon has finished re-enabling the interface, a Scan is rejected with
+        // InterfaceDisabled. This window is what the premature power-on scan raced.
+        mRejectScanUntil =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds {mRfkillTransitionDelayMs};
+    }
+}
+
+int FakeWpaSupplicantServer::onRfkillPoll(sd_event_source* source, uint64_t, void* userdata)
+{
+    auto* server {static_cast<FakeWpaSupplicantServer*>(userdata)};
+
+    server->pollRfkillOnce();
+
+    if (server->mPendingSoft >= 0 &&
+        std::chrono::steady_clock::now() - server->mPendingSince >=
+            std::chrono::milliseconds {server->mRfkillTransitionDelayMs}) {
+        const bool blocked {server->mPendingSoft != 0};
+        server->mPendingSoft = -1;
+        // A soft block disables the interface; unblocking is followed by a disconnected state,
+        // which is what makes the frontend start its automatic scan.
+        server->applyInterfaceState(blocked ? "interface_disabled" : "disconnected");
+    }
+
+    uint64_t now {0};
+    sd_event_now(server->mEvent, CLOCK_MONOTONIC, &now);
+    if (sd_event_add_time(server->mEvent, &server->mRfkillTimer, CLOCK_MONOTONIC, now + 20000, 0,
+                          onRfkillPoll, server) < 0)
+        server->mRfkillTimer = nullptr;
+
+    return 0;
+}
+
 void FakeWpaSupplicantServer::releaseHeldAddNetwork()
 {
     post([this] {
@@ -413,6 +495,16 @@ void FakeWpaSupplicantServer::run()
 
     sd_bus_attach_event(mBus, mEvent, SD_EVENT_PRIORITY_NORMAL);
 
+    if (mRfkillPolling) {
+        if (const char* path {std::getenv("ES_DE_WIFI_RFKILL_PATH")}; path != nullptr)
+            mRfkillFd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+
+        uint64_t now {0};
+        sd_event_now(mEvent, CLOCK_MONOTONIC, &now);
+        sd_event_add_time(mEvent, &mRfkillTimer, CLOCK_MONOTONIC, now + 20000, 0, onRfkillPoll,
+                          this);
+    }
+
     registerObjects();
 
     const int requestResult {sd_bus_request_name(mBus, sService, 0)};
@@ -438,6 +530,10 @@ void FakeWpaSupplicantServer::run()
     if (mWakeFd >= 0) {
         close(mWakeFd);
         mWakeFd = -1;
+    }
+    if (mRfkillFd >= 0) {
+        close(mRfkillFd);
+        mRfkillFd = -1;
     }
 }
 
@@ -962,6 +1058,21 @@ int FakeWpaSupplicantServer::onNetworkEnabledSet(sd_bus*,
 int FakeWpaSupplicantServer::onScan(sd_bus_message* message, void* userdata, sd_bus_error* error)
 {
     auto* server {static_cast<FakeWpaSupplicantServer*>(userdata)};
+
+    // A call that arrives before the daemon's rfkill event has reached the poll timer still has to
+    // be judged against that event, so read it here first.
+    server->pollRfkillOnce();
+
+    if (std::chrono::steady_clock::now() < server->mRejectScanUntil)
+        return sd_bus_error_set(error, "fi.w1.wpa_supplicant1.InterfaceDisabled",
+                                "The interface is still disabled");
+
+    if (server->mState == "interface_disabled")
+        return sd_bus_error_set(error, "fi.w1.wpa_supplicant1.InterfaceDisabled",
+                                "The interface is disabled");
+
+    if (!server->mScanFailure.empty())
+        return sd_bus_error_set(error, server->mScanFailure.c_str(), "Scan failed");
 
     // wpas_dbus_handler_scan reads the Type entry and rejects a call without one.
     WifiProperties properties;

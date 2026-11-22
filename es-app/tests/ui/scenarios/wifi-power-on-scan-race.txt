@@ -1,0 +1,40 @@
+wait-text "Super Nintendo Entertainment System" 600
+key escape down
+key escape up
+wait-text "MAIN MENU" 200
+
+# SCRAPER, UI SETTINGS, SOUND SETTINGS, INPUT DEVICE SETTINGS, BLUETOOTH, WI-FI.
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller down down
+controller down up
+controller a down
+controller a up
+
+wait-text "POWER" 200
+wait-text "CAFE" 600
+wait-frames 30
+
+# POWER is selected when the screen opens. Off, then on before the daemon has caught up.
+controller a down
+controller a up
+wait-text "(OFF)" 300
+
+controller a down
+controller a up
+
+# The automatic scan has to wait for the disabled -> active transition; no error may surface.
+# Give a spurious rejection time to surface as a dialog before checking.
+wait-frames 60
+assert-absent "THE WI-FI INTERFACE IS DISABLED"
+assert-absent "THE SCAN FAILED"
+wait-text "SCAN FOR NETWORKS" 3000
+wait-text "CAFE" 900
+capture wifi-power-on-clean
+quit

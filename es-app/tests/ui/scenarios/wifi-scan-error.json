@@ -1,0 +1,10 @@
+{
+  "runs": 2,
+  "fixture": "wifi",
+  "wifiBackend": "required",
+  "wifi": {
+    "mock": "wifi-scan-error-mock.json",
+    "config": "imperative.conf",
+    "configEmpty": true
+  }
+}

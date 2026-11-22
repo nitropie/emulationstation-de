@@ -13,13 +13,14 @@
 
 #include "lunasvg.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <sstream>
 #include <string>
-#include <unistd.h>
 
 namespace
 {
@@ -30,13 +31,20 @@ namespace
     public:
         SysfsTree()
         {
-            static std::uint64_t counter {0};
-            mRoot = std::filesystem::temp_directory_path() /
-                    ("es-de-status-" + std::to_string(static_cast<unsigned long>(getpid())) + "-" +
-                     std::to_string(counter++));
+            // The name only has to be unique among the test processes that run at the same time.
+            // A steady clock reading and a process-local counter are both portable, and the
+            // create call settles the rare case of two processes picking the same name.
+            static std::atomic<std::uint64_t> counter {0};
+
             std::error_code error;
-            std::filesystem::remove_all(mRoot, error);
-            std::filesystem::create_directories(mRoot);
+            for (int attempt {0}; attempt < 100; ++attempt) {
+                const auto stamp {std::chrono::steady_clock::now().time_since_epoch().count()};
+                mRoot = std::filesystem::temp_directory_path() /
+                        ("es-de-status-" + std::to_string(stamp) + "-" +
+                         std::to_string(counter.fetch_add(1)));
+                if (std::filesystem::create_directories(mRoot, error))
+                    break;
+            }
         }
 
         ~SysfsTree()

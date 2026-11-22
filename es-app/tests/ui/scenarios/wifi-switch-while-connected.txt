@@ -24,6 +24,9 @@ wait-text "CAFE" 600
 # SAVED label instead of capturing a transient SECURED row.
 wait-text "SAVED" 600
 assert-absent "SECURED"
+
+# The initial scan can still be running when the rows arrive, so capture the settled scan row.
+wait-text "SCAN FOR NETWORKS" 900
 capture wifi-switch-before
 
 # POWER, summary, SCAN FOR NETWORKS, HOME (connected), CAFE.
@@ -53,6 +56,9 @@ controller a up
 wait-text "CONNECTING TO Cafe" 500
 assert-text "CONNECTING"
 wait-text "SAVED" 500
+
+# The selection restarts the scan; wait for the settled row before capturing.
+wait-text "SCAN FOR NETWORKS" 900
 capture wifi-switching
 
 wait-text "CONNECTED TO Cafe" 30000

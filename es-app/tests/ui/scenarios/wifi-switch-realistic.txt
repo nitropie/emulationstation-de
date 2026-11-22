@@ -152,5 +152,8 @@ assert-absent "CONNECTED TO Home"
 assert-absent "DISCONNECTING"
 assert-text "SAVED"
 
+# The scan that SelectNetwork starts has finished by now; wait for the settled row so the capture
+# does not depend on when the scanning label flipped.
+wait-text "SCAN FOR NETWORKS" 900
 capture wifi-switch-realistic
 quit

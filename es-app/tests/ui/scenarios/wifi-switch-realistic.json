@@ -1,0 +1,12 @@
+{
+  "runs": 2,
+  "fixture": "wifi",
+  "wifiBackend": "required",
+  "wifi": {
+    "mock": "wifi-switch-realistic-mock.json",
+    "config": "imperative.conf",
+    "ipv4": "192.168.7.42",
+    "expectConfig": true,
+    "configRequire": ["Cafe"]
+  }
+}

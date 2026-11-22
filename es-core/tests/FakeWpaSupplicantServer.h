@@ -57,6 +57,9 @@ public:
         int disconnect {0};
         int reconnect {0};
         int propertySets {0};
+        int networkSelected {0};
+        // Every property name that was published in an Interface PropertiesChanged signal.
+        std::vector<std::string> interfaceChangedProperties;
         std::vector<std::string> addedSsids;
         std::vector<std::string> addedKeyMgmt;
         std::vector<std::string> selectedPaths;
@@ -104,6 +107,9 @@ public:
     void setDropAfterAssociate(const bool value);
     // Publish a new interface State and Scanning=false, as the daemon does on rfkill changes.
     void setInterfaceState(const std::string& state);
+    // Withhold the Interface.NetworkSelected signal, so the manager has to fall back to the
+    // CurrentNetwork property. Used to exercise the fallback path; off by default.
+    void setSuppressNetworkSelected(const bool value);
     // Watch ES_DE_WIFI_RFKILL_PATH and translate soft-block changes into interface state
     // transitions after this delay, for the native UI power-on race. Off by default.
     void setRfkillPolling(const bool enabled, const int transitionDelayMs);
@@ -140,6 +146,7 @@ private:
     void post(std::function<void()> command);
 
     void emitInterfaceProperties(const WifiProperties& changed);
+    void emitNetworkEnabledChanged(const std::string& path);
     void emitScanDone();
     void emitBssAdded(const std::string& path);
     void emitNetworkAdded(const std::string& path);
@@ -234,6 +241,7 @@ private:
     std::string mCurrentNetwork;
     std::string mCurrentBss;
     std::string mState {"disconnected"};
+    std::string mCurrentAuthMode {"INACTIVE"};
     std::int32_t mDisconnectReason {0};
     bool mScanning {false};
     int mNextNetwork {1};
@@ -250,6 +258,7 @@ private:
     std::string mScanFailure;
     std::string mSelectFailure;
     bool mDropAfterAssociate {false};
+    bool mSuppressNetworkSelected {false};
 
     bool mRfkillPolling {false};
     int mRfkillTransitionDelayMs {150};

@@ -1,0 +1,44 @@
+{
+  "interfaces": [
+    {
+      "path": "/fi/w1/wpa_supplicant1/Interfaces/1",
+      "ifname": "wlan0"
+    }
+  ],
+  "bsss": [
+    {
+      "path": "/fi/w1/wpa_supplicant1/Interfaces/1/BSSs/1",
+      "ssid": "Cafe",
+      "signal": -40,
+      "frequency": 2412,
+      "keyMgmt": [
+        "WPA-PSK"
+      ]
+    },
+    {
+      "path": "/fi/w1/wpa_supplicant1/Interfaces/1/BSSs/2",
+      "ssid": "Home",
+      "signal": -50,
+      "frequency": 2437,
+      "keyMgmt": [
+        "WPA-PSK"
+      ]
+    }
+  ],
+  "networks": [
+    {
+      "path": "/fi/w1/wpa_supplicant1/Interfaces/1/Networks/0",
+      "ssid": "Home",
+      "keyMgmt": "WPA-PSK",
+      "enabled": true
+    }
+  ],
+  "connected": {
+    "network": "/fi/w1/wpa_supplicant1/Interfaces/1/Networks/0",
+    "bss": "/fi/w1/wpa_supplicant1/Interfaces/1/BSSs/2"
+  },
+  "associationDelayMs": 1500,
+  "passphrases": {
+    "Cafe": "hunter22"
+  }
+}

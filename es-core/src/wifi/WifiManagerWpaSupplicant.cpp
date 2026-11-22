@@ -105,6 +105,12 @@ namespace
         if (interfaceName.empty())
             return std::string {};
 
+        // The backend and native UI tests have no real interface to read a lease from, so the
+        // address can be provided from the environment for them. It is only read when set.
+        const char* testAddress {std::getenv("ES_DE_WIFI_IPV4_ADDRESS")};
+        if (testAddress != nullptr && testAddress[0] != '\0')
+            return std::string {testAddress};
+
         struct ifaddrs* addresses {nullptr};
         if (getifaddrs(&addresses) < 0)
             return std::string {};
@@ -327,6 +333,7 @@ namespace
             autoScan,
             addNetwork,
             selectNetwork,
+            currentNetwork,
             disconnectOld,
             finalize,
             removeNetworkForForget,
@@ -725,17 +732,34 @@ namespace
             mAttempt.hadPassword = hadPassword;
             mAttempt.targetNetworkPath = targetNetworkPath;
 
-            mState.setPending(ssid, WifiOp::connecting);
-            mState.setLastError(std::string {});
-            publish();
-
-            LOG(LogInfo) << "Wi-Fi: starting a connection attempt for '" << ssid << "'";
-
             // A connection that is up, or still being brought up, is torn down first so that the
             // old network's completed state cannot be mistaken for the new target's success.
             const bool switching {mInterfaceState == "completed" ||
                                   isInProgressState(mInterfaceState) ||
                                   (!mCurrentNetworkPath.empty() && mCurrentNetworkPath != "/")};
+
+            mAttempt.previousSsid = mActiveSsid;
+            if (mAttempt.previousSsid.empty())
+                mAttempt.previousSsid = mState.ssidForNetworkPath(mCurrentNetworkPath);
+
+            mState.setPending(ssid, WifiOp::connecting);
+            mState.setLastError(std::string {});
+
+            // The network that is being torn down is shown as DISCONNECTING instead of keeping a
+            // stale CONNECTED label until the daemon reports the new state. The published active
+            // connection is dropped at the same time, so no snapshot can still call it connected.
+            if (switching && !mAttempt.previousSsid.empty() && mAttempt.previousSsid != ssid)
+                mState.setPending(mAttempt.previousSsid, WifiOp::disconnecting);
+
+            if (switching) {
+                mActiveSsid.clear();
+                mState.setActiveSsid(std::string {});
+                mState.setIpAddress(std::string {});
+            }
+
+            publish();
+
+            LOG(LogInfo) << "Wi-Fi: starting a connection attempt for '" << ssid << "'";
 
             if (switching) {
                 mAttempt.phase = Attempt::Phase::disconnectingOld;
@@ -842,6 +866,11 @@ namespace
                 return;
 
             cancelConnectTimer();
+
+            // The old network left the interface, so it is a plain saved network again.
+            if (!mAttempt.previousSsid.empty() && mAttempt.previousSsid != mAttempt.ssid)
+                mState.clearPending(mAttempt.previousSsid);
+            mAttempt.previousSsid.clear();
 
             if (mAttempt.createdNetwork) {
                 mAttempt.phase = Attempt::Phase::adding;
@@ -957,6 +986,8 @@ namespace
 
             if (mAttempt.active) {
                 const std::string ssid {mAttempt.ssid};
+                if (!mAttempt.previousSsid.empty() && mAttempt.previousSsid != ssid)
+                    mState.clearPending(mAttempt.previousSsid);
                 mAttempt = Attempt {};
                 ++mAttemptSerial;
                 cancelConnectTimer();
@@ -1150,6 +1181,8 @@ namespace
                 return;
 
             const std::string ssid {mAttempt.ssid};
+            if (!mAttempt.previousSsid.empty() && mAttempt.previousSsid != ssid)
+                mState.clearPending(mAttempt.previousSsid);
             mAttempt = Attempt {};
             ++mAttemptSerial;
             mFinalizeOps.clear();
@@ -1178,6 +1211,9 @@ namespace
             const std::string ssid {mAttempt.ssid};
             const std::string createdPath {mAttempt.createdNetworkPath};
             const bool hadPassword {mAttempt.hadPassword};
+
+            if (!mAttempt.previousSsid.empty() && mAttempt.previousSsid != ssid)
+                mState.clearPending(mAttempt.previousSsid);
 
             mAttempt = Attempt {};
             ++mAttemptSerial;
@@ -1250,16 +1286,27 @@ namespace
                 }
             }
 
+            // wpa_supplicant does not publish CurrentNetwork in PropertiesChanged, and the
+            // property it reports after a disconnect is the path of the network that is no
+            // longer connected. Both paths are dropped on a disconnected state before the
+            // dictionary is applied, so a stale path can never survive into the next attempt.
+            if (hasState && isDisconnectedState(state)) {
+                mCurrentNetworkPath.clear();
+                mCurrentBssPath.clear();
+            }
+
             bool scanning {false};
             if (getBoolean(properties, "Scanning", scanning))
                 mState.setScanning(scanning);
 
             std::string currentBss;
-            if (getString(properties, "CurrentBSS", currentBss))
+            if (getString(properties, "CurrentBSS", currentBss) && currentBss != "/" &&
+                !currentBss.empty())
                 mCurrentBssPath = currentBss;
 
             std::string currentNetwork;
-            if (getString(properties, "CurrentNetwork", currentNetwork))
+            if (getString(properties, "CurrentNetwork", currentNetwork) && currentNetwork != "/" &&
+                !currentNetwork.empty())
                 mCurrentNetworkPath = currentNetwork;
 
             if (mAttempt.active) {
@@ -1301,6 +1348,13 @@ namespace
                 }
             }
 
+            // A daemon that only reports State=completed still has to complete the attempt. The
+            // NetworkSelected signal normally identifies the target; if it was missed, the
+            // CurrentNetwork property is the authority.
+            if (mAttempt.active && mAttempt.phase == Attempt::Phase::waitingAuth &&
+                mInterfaceState == "completed" && mCurrentNetworkPath != mAttempt.targetNetworkPath)
+                requestCurrentNetwork();
+
             // The radio just came back from a soft block: wpa_supplicant re-enabled the interface
             // and a scan is the only way to fill the list again.
             if (hasState && previousState == "interface_disabled" &&
@@ -1323,6 +1377,25 @@ namespace
                 cancelIpTimer();
                 mIpPollCounter = 0;
                 mIpPollStarted = false;
+                return;
+            }
+
+            // While a switch is in flight, a completed interface state can still describe the
+            // network that is being torn down. Attributing it to the previous network is what
+            // kept it CONNECTED through the whole attempt, so the active connection is dropped
+            // until the daemon reports the target.
+            const bool attemptInFlight {mAttempt.active &&
+                                        (mAttempt.phase == Attempt::Phase::disconnectingOld ||
+                                         mAttempt.phase == Attempt::Phase::adding ||
+                                         mAttempt.phase == Attempt::Phase::selecting ||
+                                         mAttempt.phase == Attempt::Phase::waitingAuth)};
+            if (attemptInFlight && mCurrentNetworkPath != mAttempt.targetNetworkPath) {
+                mActiveSsid.clear();
+                mState.setActiveSsid(std::string {});
+                mState.setIpAddress(std::string {});
+                cancelIpTimer();
+                mIpPollStarted = false;
+                mIpPollCounter = 0;
                 return;
             }
 
@@ -1497,9 +1570,59 @@ namespace
             if (sd_bus_message_read(message, "o", &path) < 0)
                 return;
 
+            if (mCurrentNetworkPath == path) {
+                mCurrentNetworkPath.clear();
+                syncActiveConnection();
+            }
+
             mNetworks.erase(path);
             mState.removeNetwork(path);
             publish();
+        }
+
+        // Real wpa_supplicant reports the network that SelectNetwork picked with this signal and
+        // never includes CurrentNetwork in PropertiesChanged. Without it the manager kept the
+        // previous network's path and waited for the target until the phase timer fired.
+        void handleNetworkSelected(sd_bus_message* message)
+        {
+            const char* path {nullptr};
+            if (sd_bus_message_read(message, "o", &path) < 0 || path == nullptr)
+                return;
+
+            const std::string selected {path};
+            if (selected.empty() || selected == "/")
+                return;
+
+            mCurrentNetworkPath = selected;
+
+            if (mAttempt.active && mAttempt.phase == Attempt::Phase::waitingAuth &&
+                mCurrentNetworkPath == mAttempt.targetNetworkPath) {
+                mAttempt.sawTargetProgress = true;
+                if (mInterfaceState == "completed")
+                    beginFinalizing();
+            }
+
+            syncActiveConnection();
+            publish();
+        }
+
+        // The fallback for a daemon that did not send NetworkSelected: Properties.Get is the only
+        // remaining authority for the selected network. The reply is tied to the attempt serial,
+        // and only one query is in flight at a time.
+        void requestCurrentNetwork()
+        {
+            if (!mAttempt.active || mAttempt.currentNetworkInFlight || mInterfacePath.empty())
+                return;
+
+            sd_bus_message* message {nullptr};
+            if (sd_bus_message_new_method_call(mBus, &message, sService, mInterfacePath.c_str(),
+                                               sPropertiesInterface, "Get") < 0)
+                return;
+
+            sd_bus_message_append(message, "ss", sInterfaceInterface, "CurrentNetwork");
+            mAttempt.currentNetworkInFlight = true;
+            send(message, Step::currentNetwork, mEpoch, mAttempt.serial, mInterfacePath,
+                 mAttempt.ssid);
         }
 
         // A PropertiesChanged on an Interface, BSS or Network object. Both the standard signal and
@@ -1841,8 +1964,11 @@ namespace
                         if (targetCurrent || isInProgressState(mInterfaceState))
                             mAttempt.sawTargetProgress = true;
 
-                        if (mInterfaceState == "completed" && targetCurrent) {
-                            beginFinalizing();
+                        if (mInterfaceState == "completed") {
+                            if (targetCurrent)
+                                beginFinalizing();
+                            else
+                                requestCurrentNetwork();
                             break;
                         }
                     }
@@ -1857,6 +1983,29 @@ namespace
                     mAttempt.disconnectDone = true;
                     maybeAdvanceAfterDisconnect();
                     break;
+
+                case Step::currentNetwork: {
+                    mAttempt.currentNetworkInFlight = false;
+                    if (failed)
+                        break;
+
+                    std::string currentPath;
+                    if (!readVariantString(message, currentPath) || currentPath.empty() ||
+                        currentPath == "/")
+                        break;
+
+                    mCurrentNetworkPath = currentPath;
+                    if (mAttempt.active && mAttempt.phase == Attempt::Phase::waitingAuth &&
+                        mCurrentNetworkPath == mAttempt.targetNetworkPath) {
+                        mAttempt.sawTargetProgress = true;
+                        if (mInterfaceState == "completed")
+                            beginFinalizing();
+                    }
+
+                    syncActiveConnection();
+                    publish();
+                    break;
+                }
 
                 case Step::finalize:
                     if (failed) {
@@ -2049,6 +2198,11 @@ namespace
                 return 0;
             }
 
+            if (name == "NetworkSelected") {
+                manager->handleNetworkSelected(message);
+                return 0;
+            }
+
             if (name != "PropertiesChanged")
                 return 0;
 
@@ -2141,10 +2295,12 @@ namespace
             bool createdNetwork {false};
             bool hadPassword {false};
             Phase phase {Phase::none};
+            std::string previousSsid;
             std::string targetNetworkPath;
             std::string createdNetworkPath;
             bool sawTargetProgress {false};
             bool disconnectDone {false};
+            bool currentNetworkInFlight {false};
         };
 
         struct FinalizeOp {

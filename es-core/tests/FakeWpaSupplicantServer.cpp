@@ -320,6 +320,11 @@ void FakeWpaSupplicantServer::setDropAfterAssociate(const bool value)
     mDropAfterAssociate = value;
 }
 
+void FakeWpaSupplicantServer::setSuppressNetworkSelected(const bool value)
+{
+    mSuppressNetworkSelected = value;
+}
+
 void FakeWpaSupplicantServer::setInterfaceState(const std::string& state)
 {
     post([this, state] { applyInterfaceState(state); });
@@ -594,6 +599,14 @@ void FakeWpaSupplicantServer::processCommands()
 
 void FakeWpaSupplicantServer::emitInterfaceProperties(const WifiProperties& changed)
 {
+    // Recorded so a test can prove that CurrentNetwork is never part of the signals, like the
+    // real wpa_supplicant.
+    {
+        std::lock_guard<std::mutex> lock {mCallsMutex};
+        for (const auto& entry : changed)
+            mCalls.interfaceChangedProperties.push_back(entry.first);
+    }
+
     sd_bus_message* signal {nullptr};
     if (sd_bus_message_new_signal(mBus, &signal, mInterfacePath.c_str(), sInterfaceInterface,
                                   "PropertiesChanged") < 0)
@@ -601,6 +614,21 @@ void FakeWpaSupplicantServer::emitInterfaceProperties(const WifiProperties& chan
 
     sd_bus_message_open_container(signal, SD_BUS_TYPE_ARRAY, "{sv}");
     appendProperties(signal, changed);
+    sd_bus_message_close_container(signal);
+
+    sd_bus_send(mBus, signal, nullptr);
+    sd_bus_message_unref(signal);
+}
+
+void FakeWpaSupplicantServer::emitNetworkEnabledChanged(const std::string& path)
+{
+    sd_bus_message* signal {nullptr};
+    if (sd_bus_message_new_signal(mBus, &signal, path.c_str(), sNetworkInterface,
+                                  "PropertiesChanged") < 0)
+        return;
+
+    sd_bus_message_open_container(signal, SD_BUS_TYPE_ARRAY, "{sv}");
+    appendBooleanProperty(signal, "Enabled", true);
     sd_bus_message_close_container(signal);
 
     sd_bus_send(mBus, signal, nullptr);
@@ -707,8 +735,11 @@ const sd_bus_vtable* FakeWpaSupplicantServer::interfaceVTable()
                         SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
         SD_BUS_PROPERTY("CurrentNetwork", "o", onInterfaceProperty, 0,
                         SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+        SD_BUS_PROPERTY("CurrentAuthMode", "s", onInterfaceProperty, 0,
+                        SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
         SD_BUS_PROPERTY("DisconnectReason", "i", onInterfaceProperty, 0,
                         SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+        SD_BUS_SIGNAL("NetworkSelected", "o", 0),
         SD_BUS_SIGNAL("PropertiesChanged", "a{sv}", 0),
         SD_BUS_SIGNAL("ScanDone", "b", 0),
         SD_BUS_SIGNAL("BSSAdded", "oa{sv}", 0),
@@ -815,12 +846,40 @@ void FakeWpaSupplicantServer::selectNetwork(const std::string& path)
         return;
 
     mSelectedNetwork = path;
-    mState = "associating";
     mDisconnectReason = 0;
+    mCurrentAuthMode = network->second.keyMgmt == "NONE" ? "NONE" : "WPA2-PSK";
 
+    // The live wpa_supplicant v2.12 capture: the selected network is reported with
+    // NetworkSelected, and CurrentNetwork never appears in PropertiesChanged. The selected block
+    // is enabled as part of the selection.
+    if (!mSuppressNetworkSelected) {
+        {
+            std::lock_guard<std::mutex> lock {mCallsMutex};
+            ++mCalls.networkSelected;
+        }
+        sd_bus_emit_signal(mBus, mInterfacePath.c_str(), sInterfaceInterface, "NetworkSelected",
+                           "o", path.c_str());
+    }
+    emitNetworkEnabledChanged(path);
+
+    // The scan that precedes the association, exactly as the daemon publishes it.
+    mState = "scanning";
+    mScanning = true;
+    WifiProperties scanning;
+    scanning["State"] = std::string {"scanning"};
+    scanning["Scanning"] = true;
+    emitInterfaceProperties(scanning);
+
+    emitScanDone();
+    mScanning = false;
+    WifiProperties scanFinished;
+    scanFinished["Scanning"] = false;
+    emitInterfaceProperties(scanFinished);
+
+    mState = "associating";
     WifiProperties associating;
     associating["State"] = std::string {"associating"};
-    associating["CurrentNetwork"] = path;
+    associating["CurrentAuthMode"] = mCurrentAuthMode;
     emitInterfaceProperties(associating);
 
     const auto expected {mExpectedPassphrases.find(network->second.ssid)};
@@ -852,10 +911,15 @@ void FakeWpaSupplicantServer::selectNetwork(const std::string& path)
     if (mDropAfterAssociate) {
         mState = "disconnected";
         mDisconnectReason = 0;
+        mCurrentNetwork.clear();
+        mCurrentBss.clear();
+        mCurrentAuthMode = "INACTIVE";
 
         WifiProperties failed;
         failed["State"] = std::string {"disconnected"};
         failed["DisconnectReason"] = std::int64_t {0};
+        failed["CurrentBSS"] = std::string {"/"};
+        failed["CurrentAuthMode"] = mCurrentAuthMode;
         emitInterfaceProperties(failed);
         return;
     }
@@ -881,10 +945,15 @@ void FakeWpaSupplicantServer::selectNetwork(const std::string& path)
 void FakeWpaSupplicantServer::completeAuthFailure()
 {
     mState = "disconnected";
+    mCurrentNetwork.clear();
+    mCurrentBss.clear();
+    mCurrentAuthMode = "INACTIVE";
 
     WifiProperties failed;
     failed["State"] = std::string {"disconnected"};
     failed["DisconnectReason"] = std::int64_t {mDisconnectReason};
+    failed["CurrentBSS"] = std::string {"/"};
+    failed["CurrentAuthMode"] = mCurrentAuthMode;
     emitInterfaceProperties(failed);
 }
 
@@ -903,8 +972,6 @@ void FakeWpaSupplicantServer::completeSelection(const std::string& path)
     if (network == mNetworks.end())
         return;
 
-    mState = "completed";
-
     std::string bssPath {sNonePath};
     for (const auto& bss : mBsses) {
         if (bss.second.ssid == network->second.ssid) {
@@ -912,13 +979,23 @@ void FakeWpaSupplicantServer::completeSelection(const std::string& path)
             break;
         }
     }
+
+    // The association completes before the four-way handshake, and only the property Get reports
+    // the selected network.
+    mState = "associated";
+    mCurrentBss = bssPath;
+    WifiProperties associated;
+    associated["State"] = std::string {"associated"};
+    associated["CurrentBSS"] = bssPath;
+    associated["CurrentAuthMode"] = mCurrentAuthMode;
+    emitInterfaceProperties(associated);
+
+    mState = "completed";
     mCurrentNetwork = path;
     mCurrentBss = bssPath;
-
     WifiProperties completed;
     completed["State"] = std::string {"completed"};
-    completed["CurrentNetwork"] = path;
-    completed["CurrentBSS"] = bssPath;
+    completed["CurrentAuthMode"] = mCurrentAuthMode;
     emitInterfaceProperties(completed);
 }
 
@@ -977,6 +1054,9 @@ int FakeWpaSupplicantServer::onInterfaceProperty(sd_bus*,
 
     if (std::strcmp(property, "Scanning") == 0)
         return sd_bus_message_append(reply, "b", server->mScanning ? 1 : 0);
+
+    if (std::strcmp(property, "CurrentAuthMode") == 0)
+        return sd_bus_message_append(reply, "s", server->mCurrentAuthMode.c_str());
 
     if (std::strcmp(property, "DisconnectReason") == 0)
         return sd_bus_message_append(reply, "i", server->mDisconnectReason);
@@ -1282,9 +1362,12 @@ int FakeWpaSupplicantServer::onRemoveNetwork(sd_bus_message* message, void* user
         server->mSelectedNetwork.clear();
         server->mCurrentNetwork.clear();
         server->mCurrentBss.clear();
+        server->mCurrentAuthMode = "INACTIVE";
 
         WifiProperties changed;
         changed["State"] = std::string {"disconnected"};
+        changed["CurrentBSS"] = std::string {"/"};
+        changed["CurrentAuthMode"] = server->mCurrentAuthMode;
         server->emitInterfaceProperties(changed);
     }
 
@@ -1337,10 +1420,14 @@ int FakeWpaSupplicantServer::onDisconnect(sd_bus_message* message, void* userdat
     server->mSelectedNetwork.clear();
     server->mCurrentNetwork.clear();
     server->mCurrentBss.clear();
-    server->mDisconnectReason = 0;
+    server->mCurrentAuthMode = "INACTIVE";
+    server->mDisconnectReason = -3;
 
     WifiProperties changed;
     changed["State"] = std::string {"disconnected"};
+    changed["DisconnectReason"] = std::int64_t {-3};
+    changed["CurrentBSS"] = std::string {"/"};
+    changed["CurrentAuthMode"] = std::string {"INACTIVE"};
     server->emitInterfaceProperties(changed);
 
     return sd_bus_reply_method_return(message, nullptr);

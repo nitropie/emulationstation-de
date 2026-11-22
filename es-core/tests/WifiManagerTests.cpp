@@ -136,6 +136,19 @@ namespace
         return false;
     }
 
+    const WifiNetwork* findNetworkEntry(const std::shared_ptr<const WifiSnapshot>& snapshot,
+                                        const std::string& ssid)
+    {
+        if (snapshot == nullptr)
+            return nullptr;
+
+        for (const WifiNetwork& network : snapshot->networks) {
+            if (network.ssid == ssid)
+                return &network;
+        }
+        return nullptr;
+    }
+
     bool hasEnabledPath(const FakeWpaSupplicantServer::Calls& calls, const std::string& path)
     {
         return std::find(calls.enabledPaths.begin(), calls.enabledPaths.end(), path) !=
@@ -564,6 +577,206 @@ TEST_CASE(wifiSwitchingWhileConnectedIgnoresStaleCompleted)
     EXPECT(calls.selectNetwork == 1);
     if (calls.selectedPaths.size() == 1)
         EXPECT(calls.selectedPaths.front() == sCafeNetworkPath);
+}
+
+TEST_CASE(wifiSwitchCompletesWhenDaemonOmitsCurrentNetworkSignal)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.addHome();
+    fixture.server.setConnectedState(sHomeNetworkPath, "/");
+    fixture.server.setAssociationDelayMs(1500);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->available && snapshot->connected &&
+               snapshot->activeSsid == "Home";
+    }));
+
+    setenv("ES_DE_WIFI_IPV4_ADDRESS", "192.168.7.42", 1);
+
+    // The real wpa_supplicant reports the selected network with NetworkSelected and never puts
+    // CurrentNetwork into PropertiesChanged. The attempt has to complete without the 25 s timeout.
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+
+    bool attemptSeen {false};
+    bool homeStayedConnected {false};
+    bool cafeConnected {false};
+    const auto deadline {std::chrono::steady_clock::now() + std::chrono::seconds {10}};
+    while (std::chrono::steady_clock::now() < deadline) {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        const WifiNetwork* cafe {findNetworkEntry(snapshot, "Cafe")};
+        const WifiNetwork* home {findNetworkEntry(snapshot, "Home")};
+
+        if (cafe != nullptr && cafe->pending != WifiOp::none)
+            attemptSeen = true;
+        if (attemptSeen && home != nullptr && home->connected)
+            homeStayedConnected = true;
+        if (snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe") {
+            cafeConnected = true;
+            break;
+        }
+        if (snapshot != nullptr && !snapshot->lastError.empty())
+            break;
+
+        std::this_thread::sleep_for(std::chrono::milliseconds {5});
+    }
+
+    EXPECT(attemptSeen);
+    EXPECT(!homeStayedConnected);
+    EXPECT(cafeConnected);
+
+    // The old network is a saved network again, the target owns the wifi status and the lease.
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        const WifiNetwork* home {findNetworkEntry(snapshot, "Home")};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe" &&
+               snapshot->ipAddress == "192.168.7.42" && home != nullptr && home->saved &&
+               !home->connected && home->pending == WifiOp::none;
+    }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.disconnect >= 1);
+    EXPECT(calls.addNetwork == 1);
+    EXPECT(calls.networkSelected >= 1);
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().saveConfig >= 1; }));
+
+    const std::string config {readFile(fixture.configPath)};
+    EXPECT(contains(config, "Cafe"));
+    EXPECT(contains(config, sCorrectPassphrase));
+
+    unsetenv("ES_DE_WIFI_IPV4_ADDRESS");
+}
+
+TEST_CASE(wifiConnectFromInactiveCompletesWhenDaemonOmitsCurrentNetworkSignal)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+
+    setenv("ES_DE_WIFI_IPV4_ADDRESS", "10.0.0.7", 1);
+
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe" &&
+               snapshot->ipAddress == "10.0.0.7" && snapshot->lastError.empty();
+    }));
+
+    EXPECT(fixture.server.calls().networkSelected >= 1);
+    EXPECT(fixture.server.calls().addNetwork == 1);
+
+    unsetenv("ES_DE_WIFI_IPV4_ADDRESS");
+}
+
+TEST_CASE(wifiConnectFallsBackToCurrentNetworkProperty)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.addHome();
+    fixture.server.setConnectedState(sHomeNetworkPath, "/");
+    // Without NetworkSelected the only source for the selected path is the CurrentNetwork
+    // property, which is still readable through Properties.Get.
+    fixture.server.setSuppressNetworkSelected(true);
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->available && snapshot->connected &&
+               snapshot->activeSsid == "Home";
+    }));
+
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] {
+            const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+            return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe";
+        },
+        10000));
+
+    EXPECT(fixture.server.calls().networkSelected == 0);
+    EXPECT(fixture.server.calls().addNetwork == 1);
+}
+
+TEST_CASE(wifiDisconnectWithoutCurrentNetworkClearsActiveConnection)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addHome();
+    fixture.server.setConnectedState(sHomeNetworkPath, "/");
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->available && snapshot->connected &&
+               snapshot->activeSsid == "Home";
+    }));
+
+    setenv("ES_DE_WIFI_IPV4_ADDRESS", "192.168.7.42", 1);
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot()->ipAddress == "192.168.7.42"; }));
+
+    // The daemon publishes State=disconnected and CurrentBSS="/" without CurrentNetwork. The
+    // stale path has to go, together with the active connection and the lease.
+    fixture.manager->disconnect();
+
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        const WifiNetwork* home {findNetworkEntry(snapshot, "Home")};
+        return snapshot != nullptr && !snapshot->connected && snapshot->activeSsid.empty() &&
+               snapshot->ipAddress.empty() && home != nullptr && home->saved && !home->connected;
+    }));
+
+    EXPECT(fixture.snapshot()->lastError.empty());
+
+    unsetenv("ES_DE_WIFI_IPV4_ADDRESS");
+}
+
+TEST_CASE(wifiFakeServerNeverPublishesCurrentNetwork)
+{
+    WifiFixture fixture;
+    fixture.addInterfaces();
+    fixture.addCafe();
+    fixture.addHome();
+    EXPECT(fixture.start());
+    if (fixture.manager == nullptr)
+        return;
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.snapshot() != nullptr && fixture.snapshot()->available; }));
+
+    fixture.manager->connectWithPassword("Cafe", sCorrectPassphrase);
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] {
+        const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
+        return snapshot != nullptr && snapshot->connected && snapshot->activeSsid == "Cafe";
+    }));
+
+    fixture.manager->disconnect();
+    EXPECT(FakeWpaSupplicantServer::waitFor([&fixture] { return !fixture.snapshot()->connected; }));
+
+    const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
+    EXPECT(calls.networkSelected >= 1);
+    EXPECT(std::find(calls.interfaceChangedProperties.cbegin(),
+                     calls.interfaceChangedProperties.cend(),
+                     "CurrentNetwork") == calls.interfaceChangedProperties.cend());
 }
 
 TEST_CASE(wifiFailedPasswordKeepsExistingSavedBlock)

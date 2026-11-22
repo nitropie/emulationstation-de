@@ -462,6 +462,8 @@ def main():
                     pass
                 env["ES_DE_WIFI_DBUS_BUS"] = "session"
                 env["ES_DE_WIFI_RFKILL_PATH"] = rfkill_path
+                if wifi.get("ipv4"):
+                    env["ES_DE_WIFI_IPV4_ADDRESS"] = wifi["ipv4"]
                 wifi_server = start_wifi_server(
                     args.wifi_server,
                     os.path.join(fixture_root, wifi.get("mock", "wifi-mock.json")),

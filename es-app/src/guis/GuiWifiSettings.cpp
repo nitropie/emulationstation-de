@@ -152,23 +152,25 @@ void GuiWifiSettings::rebuild()
                 manager.startScan();
         });
         addRow(scanRow, std::string {});
-    }
 
-    for (const WifiNetwork& network : snapshot->networks) {
-        ComponentListRow row;
+        // The network rows belong to the powered screen. A cached BSS stays in the snapshot after
+        // the radio is switched off, and showing it would offer a network that cannot be joined.
+        for (const WifiNetwork& network : snapshot->networks) {
+            ComponentListRow row;
 
-        auto name {std::make_shared<TextComponent>(
-            networkLabel(network), Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary, ALIGN_LEFT)};
-        name->setHorizontalScrolling(true);
-        row.addElement(name, true);
-        row.addElement(std::make_shared<TextComponent>(stateLabel(network),
-                                                       Font::get(FONT_SIZE_SMALL),
-                                                       mMenuColorSecondary, ALIGN_RIGHT),
-                       false);
+            auto name {std::make_shared<TextComponent>(
+                networkLabel(network), Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary, ALIGN_LEFT)};
+            name->setHorizontalScrolling(true);
+            row.addElement(name, true);
+            row.addElement(std::make_shared<TextComponent>(stateLabel(network),
+                                                           Font::get(FONT_SIZE_SMALL),
+                                                           mMenuColorSecondary, ALIGN_RIGHT),
+                           false);
 
-        const std::string ssid {network.ssid};
-        row.makeAcceptInputHandler([this, ssid] { openNetworkActions(ssid); });
-        addRow(row, ssid);
+            const std::string ssid {network.ssid};
+            row.makeAcceptInputHandler([this, ssid] { openNetworkActions(ssid); });
+            addRow(row, ssid);
+        }
     }
 
     const int rows {static_cast<int>(mRowSsids.size())};
@@ -190,7 +192,10 @@ void GuiWifiSettings::rebuild()
 void GuiWifiSettings::openNetworkActions(const std::string& ssid)
 {
     const std::shared_ptr<const WifiSnapshot> snapshot {WifiManager::getInstance().getSnapshot()};
-    if (snapshot == nullptr)
+
+    // The rows are not rendered while the radio is off, but a queued accept event could still
+    // arrive after a power change. Nothing may be configured in that state.
+    if (snapshot == nullptr || !snapshot->powered)
         return;
 
     const WifiNetwork* network {nullptr};

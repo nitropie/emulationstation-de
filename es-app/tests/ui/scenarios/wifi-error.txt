@@ -20,6 +20,10 @@ controller a down
 controller a up
 
 wait-text "POWER" 200
+
+# A cached access point is on screen before the radio is switched off, so the absence check
+# below cannot pass just because no scan has completed yet.
+wait-text "CAFE" 600
 wait-frames 30
 capture wifi-open
 
@@ -29,6 +33,7 @@ controller a up
 
 wait-text "(OFF)" 200
 assert-absent "SCAN FOR NETWORKS"
+assert-absent "CAFE"
 capture wifi-power-off
 
 controller a down

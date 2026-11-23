@@ -777,6 +777,12 @@ add_subdirectory(external)
 add_subdirectory(es-core)
 add_subdirectory(es-app)
 
+# The offline migration helper is a separate module; it links the application
+# objects and must not exist on iOS, where that target is absent.
+if(NOT IOS)
+    add_subdirectory(tools/migration)
+endif()
+
 # Make sure that es-pdf-convert is built first, and then that rlottie is built before es-core.
 add_dependencies(lunasvg es-pdf-convert)
 

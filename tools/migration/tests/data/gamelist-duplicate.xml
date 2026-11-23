@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<gameList>
+	<game>
+		<path>./Duplicate.sfc</path>
+		<name>First copy</name>
+		<favorite>true</favorite>
+	</game>
+	<game>
+		<path>./Duplicate.sfc</path>
+		<name>Second copy</name>
+		<playcount>2</playcount>
+	</game>
+</gameList>

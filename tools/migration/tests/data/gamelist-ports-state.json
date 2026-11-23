@@ -1,0 +1,37 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "snes",
+  "systemPreferences": {},
+  "entries": [
+    {
+      "type": "folder",
+      "path": "ports",
+      "fields": {
+        "favorite": true
+      }
+    },
+    {
+      "type": "folder",
+      "path": "ports/quake2",
+      "fields": {
+        "lastplayed": "20231231T235959"
+      }
+    },
+    {
+      "type": "game",
+      "path": "ports/quake2/baseq2/pak0.pak",
+      "fields": {
+        "favorite": true,
+        "playcount": 2
+      }
+    },
+    {
+      "type": "game",
+      "path": "ports/tyrquake/id1/pak0.pak",
+      "fields": {
+        "lastplayed": "20240101T010101"
+      }
+    }
+  ]
+}

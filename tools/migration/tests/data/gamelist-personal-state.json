@@ -1,0 +1,46 @@
+{
+  "schema": "nitropie.profile-state",
+  "version": 1,
+  "system": "snes",
+  "systemPreferences": {
+    "alternativeEmulator": "Snes9x - Current",
+    "launchOnOtherScreen": false
+  },
+  "entries": [
+    {
+      "type": "game",
+      "path": "First Game (USA).sfc",
+      "fields": {
+        "favorite": true,
+        "playcount": 7,
+        "altemulator": "Snes9x - Old",
+        "lastplayed": "20240102T030405"
+      }
+    },
+    {
+      "type": "folder",
+      "path": "Hacks",
+      "fields": {
+        "favorite": true
+      }
+    },
+    {
+      "type": "game",
+      "path": "Hacks/Snes Hack.sfc",
+      "fields": {
+        "favorite": true,
+        "playcount": 9
+      }
+    },
+    {
+      "type": "game",
+      "path": "Second Game (USA).sfc",
+      "fields": {
+        "completed": true,
+        "playcount": 3,
+        "playtime": 1800,
+        "lastplayed": "20240203T040506"
+      }
+    }
+  ]
+}

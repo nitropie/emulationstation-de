@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<gameList>
+	<game>
+		<path>../escape.sfc</path>
+		<name>Escape</name>
+		<favorite>true</favorite>
+	</game>
+</gameList>

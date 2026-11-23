@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<gameList>
+	<folder>
+		<path>./ports</path>
+		<name>Ports</name>
+	</folder>
+	<folder>
+		<path>./ports/quake2</path>
+		<name>Quake II</name>
+	</folder>
+	<game>
+		<path>./ports/quake2/baseq2/pak0.pak</path>
+		<name>Quake II</name>
+	</game>
+	<game>
+		<path>./ports/tyrquake/id1/pak0.pak</path>
+		<name>TyrQuake</name>
+	</game>
+</gameList>

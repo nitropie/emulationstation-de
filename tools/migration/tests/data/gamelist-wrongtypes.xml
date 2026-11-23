@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<gameList>
+	<game>
+		<path>./Wrong.sfc</path>
+		<name>Wrong</name>
+		<favorite>yes</favorite>
+		<playcount>many</playcount>
+		<lastplayed>2024-01-02</lastplayed>
+	</game>
+</gameList>

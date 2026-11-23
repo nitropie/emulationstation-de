@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<gameList>
+	<folder>
+		<path>./ports</path>
+		<name>Ports</name>
+		<favorite>true</favorite>
+	</folder>
+	<folder>
+		<path>./ports/quake2</path>
+		<name>Quake II</name>
+		<lastplayed>20231231T235959</lastplayed>
+	</folder>
+	<game>
+		<path>./ports/quake2/baseq2/pak0.pak</path>
+		<name>Quake II</name>
+		<favorite>true</favorite>
+		<playcount>2</playcount>
+	</game>
+	<game>
+		<path>./ports/tyrquake/id1/pak0.pak</path>
+		<name>TyrQuake</name>
+		<lastplayed>20240101T010101</lastplayed>
+	</game>
+</gameList>

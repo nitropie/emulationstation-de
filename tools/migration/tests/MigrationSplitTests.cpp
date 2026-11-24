@@ -387,3 +387,244 @@ TEST_CASE(legacySourceIsRecorded)
     EXPECT(MigrationSplit::splitSystem(request, bytes, shared, state, result, error));
     EXPECT(result.source == "legacy");
 }
+
+namespace
+{
+    MigrationSplit::MergeRequest mergeRequestFor()
+    {
+        MigrationSplit::MergeRequest request;
+        request.system = "snes";
+        request.profileId = "bbb35f7a-a579-4721-8510-2f777c27225a";
+        request.romRoot = romRoot();
+        request.source = "legacy";
+        request.shared = "library/gamelists/snes/gamelist.xml";
+        request.state =
+            "profiles/bbb35f7a-a579-4721-8510-2f777c27225a/home/ES-DE/profile-state/snes.json";
+        request.legacy = "legacy/gamelists/snes/gamelist.xml";
+        return request;
+    }
+
+    std::string stateWith(const std::string& preferences, const std::string& entries)
+    {
+        return "{\"schema\":\"nitropie.profile-state\",\"version\":1,\"system\":\"snes\"," +
+               std::string {"\"systemPreferences\":{"} + preferences + "},\"entries\":[" + entries +
+               "]}";
+    }
+
+    std::string splitOf(const std::string& gamelist, std::string& shared, std::string& state)
+    {
+        MigrationSplit::SystemRequest request {requestFor()};
+        MigrationSplit::SystemResult result;
+        std::string error;
+        if (!MigrationSplit::splitSystem(request, gamelist, shared, state, result, error))
+            return error;
+        return {};
+    }
+} // namespace
+
+TEST_CASE(mergeReconstructsThePersonalFixture)
+{
+    std::string shared;
+    std::string state;
+    EXPECT(splitOf(testData("gamelist-personal.xml"), shared, state).empty());
+
+    MigrationSplit::MergeRequest request {mergeRequestFor()};
+    std::string legacy;
+    std::string error;
+    MigrationSplit::SystemResult merged;
+    EXPECT(MigrationSplit::mergeSystem(request, shared, state, legacy, merged, error));
+    if (!error.empty())
+        std::printf("--- merge error: %s\n", error.c_str());
+    EXPECT(error.empty());
+    EXPECT(merged.records == 4);
+    EXPECT(merged.personalEntries == 4);
+    EXPECT(merged.items.empty());
+
+    EXPECT(has(legacy, "<path>./First Game (USA).sfc</path>"));
+    EXPECT(has(legacy, "<favorite>true</favorite>"));
+    EXPECT(has(legacy, "<playcount>7</playcount>"));
+    EXPECT(has(legacy, "<altemulator>Snes9x - Old</altemulator>"));
+    EXPECT(has(legacy, "<lastplayed>20240102T030405</lastplayed>"));
+    EXPECT(has(legacy, "<completed>true</completed>"));
+    EXPECT(has(legacy, "<playtime>1800</playtime>"));
+    EXPECT(has(legacy, "<label>Snes9x - Current</label>"));
+    EXPECT(has(legacy, "<launchOnOtherScreen>false</launchOnOtherScreen>"));
+    EXPECT(has(legacy, "<mysteryTag>keep me</mysteryTag>"));
+    EXPECT(has(legacy, "<mysteryFolderTag>keep</mysteryFolderTag>"));
+    EXPECT(has(legacy, "<scraperNotes>"));
+    // A default personal value is never written.
+    EXPECT(!has(legacy, "<favorite>false</favorite>"));
+}
+
+TEST_CASE(mergeAppendsProfileOnlyRecords)
+{
+    const std::string shared {testData("gamelist-personal-shared.xml")};
+    const std::string state {stateWith(
+        "",
+        "{\"type\":\"game\",\"path\":\"Only In Profile.sfc\",\"fields\":"
+        "{\"favorite\":true,\"playcount\":2}},"
+        "{\"type\":\"folder\",\"path\":\"Only Folder\",\"fields\":{\"favorite\":true}}")};
+
+    MigrationSplit::MergeRequest request {mergeRequestFor()};
+    std::string legacy;
+    std::string error;
+    MigrationSplit::SystemResult merged;
+    EXPECT(MigrationSplit::mergeSystem(request, shared, state, legacy, merged, error));
+    if (!error.empty())
+        std::printf("--- merge error: %s\n", error.c_str());
+    EXPECT(error.empty());
+    EXPECT(merged.records == 6);
+    EXPECT(has(legacy, "<path>./Only In Profile.sfc</path>"));
+    EXPECT(has(legacy, "<playcount>2</playcount>"));
+    EXPECT(has(legacy, "<path>./Only Folder</path>"));
+    EXPECT(has(legacy, "<folder>"));
+}
+
+TEST_CASE(mergeReportsStaleSharedPersonalStateAndResetsIt)
+{
+    const std::string shared {"<?xml version=\"1.0\"?>\n<gameList>\n\t<game>\n"
+                              "\t\t<path>./Stale.sfc</path>\n\t\t<name>Stale</name>\n"
+                              "\t\t<favorite>true</favorite>\n\t</game>\n</gameList>\n"};
+    const std::string state {stateWith("", "")};
+
+    MigrationSplit::MergeRequest request {mergeRequestFor()};
+    std::string legacy;
+    std::string error;
+    MigrationSplit::SystemResult merged;
+    EXPECT(MigrationSplit::mergeSystem(request, shared, state, legacy, merged, error));
+    if (!error.empty())
+        std::printf("--- merge error: %s\n", error.c_str());
+    EXPECT(error.empty());
+    bool warned {false};
+    for (const MigrationSplit::Item& item : merged.items) {
+        EXPECT(!item.blocking);
+        if (item.field == "favorite")
+            warned = true;
+    }
+    EXPECT(warned);
+    // The stale value is reset, so the produced gamelist carries no favourite.
+    EXPECT(has(legacy, "<name>Stale</name>"));
+    EXPECT(!has(legacy, "<favorite>"));
+}
+
+TEST_CASE(mergeReportsUnknownAndWrongTypedData)
+{
+    const std::string shared {testData("gamelist-personal-shared.xml")};
+    const std::string unknown {stateWith(
+        "", "{\"type\":\"game\",\"path\":\"First Game (USA).sfc\",\"fields\":{\"nonsense\":1}}")};
+    const std::string wrongType {stateWith(
+        "", "{\"type\":\"game\",\"path\":\"First Game (USA).sfc\",\"fields\":{\"favorite\":\"yes\"}}")};
+
+    MigrationSplit::MergeRequest request {mergeRequestFor()};
+    std::string legacy;
+    std::string error;
+    MigrationSplit::SystemResult merged;
+    EXPECT(MigrationSplit::mergeSystem(request, shared, unknown, legacy, merged, error));
+    EXPECT(error.empty());
+    EXPECT(!merged.items.empty());
+    bool blocking {false};
+    for (const MigrationSplit::Item& item : merged.items)
+        blocking = blocking || item.blocking;
+    EXPECT(blocking);
+
+    MigrationSplit::SystemResult second;
+    EXPECT(MigrationSplit::mergeSystem(request, shared, wrongType, legacy, second, error));
+    blocking = false;
+    for (const MigrationSplit::Item& item : second.items)
+        blocking = blocking || item.blocking;
+    EXPECT(blocking);
+}
+
+TEST_CASE(mergeRefusesTooNewState)
+{
+    const std::string shared {testData("gamelist-personal-shared.xml")};
+    const std::string state {"{\"schema\":\"nitropie.profile-state\",\"version\":2,"
+                             "\"system\":\"snes\",\"systemPreferences\":{},\"entries\":[]}"};
+
+    MigrationSplit::MergeRequest request {mergeRequestFor()};
+    std::string legacy;
+    std::string error;
+    MigrationSplit::SystemResult merged;
+    EXPECT(!MigrationSplit::mergeSystem(request, shared, state, legacy, merged, error));
+    EXPECT(has(error, "too new"));
+    EXPECT(legacy.empty());
+}
+
+TEST_CASE(verifyMergeDetectsATamperedPersonalValue)
+{
+    std::string shared;
+    std::string state;
+    EXPECT(splitOf(testData("gamelist-personal.xml"), shared, state).empty());
+
+    MigrationSplit::MergeRequest request {mergeRequestFor()};
+    std::string legacy;
+    std::string error;
+    MigrationSplit::SystemResult merged;
+    EXPECT(MigrationSplit::mergeSystem(request, shared, state, legacy, merged, error));
+    EXPECT(error.empty());
+
+    std::string tampered {legacy};
+    const std::string from {"<playcount>7</playcount>"};
+    const std::string to {"<playcount>8</playcount>"};
+    const std::size_t position {tampered.find(from)};
+    EXPECT(position != std::string::npos);
+    if (position != std::string::npos)
+        tampered.replace(position, from.size(), to);
+
+    MigrationSplit::SystemResult checked;
+    EXPECT(!MigrationSplit::verifyMergedSystem(request, shared, state, tampered, checked, error));
+    EXPECT(has(error, "playcount"));
+}
+
+TEST_CASE(verifyMergeDetectsAnExtraRecord)
+{
+    std::string shared;
+    std::string state;
+    EXPECT(splitOf(testData("gamelist-personal.xml"), shared, state).empty());
+
+    MigrationSplit::MergeRequest request {mergeRequestFor()};
+    std::string legacy;
+    std::string error;
+    MigrationSplit::SystemResult merged;
+    EXPECT(MigrationSplit::mergeSystem(request, shared, state, legacy, merged, error));
+    EXPECT(error.empty());
+
+    std::string tampered {legacy};
+    const std::string closing {"</gameList>"};
+    const std::size_t position {tampered.find(closing)};
+    EXPECT(position != std::string::npos);
+    if (position != std::string::npos) {
+        tampered.insert(position, "\t<game>\n\t\t<path>./Extra.sfc</path>\n"
+                                  "\t\t<favorite>true</favorite>\n\t</game>\n");
+    }
+
+    MigrationSplit::SystemResult checked;
+    EXPECT(!MigrationSplit::verifyMergedSystem(request, shared, state, tampered, checked, error));
+    EXPECT(has(error, "record count"));
+}
+
+TEST_CASE(verifyMergeDetectsAPreferenceChange)
+{
+    std::string shared;
+    std::string state;
+    EXPECT(splitOf(testData("gamelist-personal.xml"), shared, state).empty());
+
+    MigrationSplit::MergeRequest request {mergeRequestFor()};
+    std::string legacy;
+    std::string error;
+    MigrationSplit::SystemResult merged;
+    EXPECT(MigrationSplit::mergeSystem(request, shared, state, legacy, merged, error));
+    EXPECT(error.empty());
+
+    std::string tampered {legacy};
+    const std::string from {"<label>Snes9x - Current</label>"};
+    const std::string to {"<label>Snes9x - Modern</label>"};
+    const std::size_t position {tampered.find(from)};
+    EXPECT(position != std::string::npos);
+    if (position != std::string::npos)
+        tampered.replace(position, from.size(), to);
+
+    MigrationSplit::SystemResult checked;
+    EXPECT(!MigrationSplit::verifyMergedSystem(request, shared, state, tampered, checked, error));
+    EXPECT(has(error, "alternative emulator"));
+}

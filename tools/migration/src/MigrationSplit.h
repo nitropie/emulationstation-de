@@ -53,6 +53,8 @@ namespace MigrationSplit
         std::string source;
         std::string sharedDigest;
         std::string stateDigest;
+        // Merge only: digest of the produced legacy gamelist.
+        std::string legacyDigest;
         int records {0};
         int personalEntries {0};
         std::vector<Item> items;
@@ -88,6 +90,50 @@ namespace MigrationSplit
                       const std::string& stateJson,
                       SystemResult& result,
                       std::string& error);
+
+    // One system to merge back toward the legacy single-file gamelist. All
+    // names are relative to the staging directory; `romRoot` is used for path
+    // maths only and is never opened here.
+    struct MergeRequest {
+        std::string system;
+        std::string profileId;
+        std::string romRoot;
+        // Always "legacy" today; recorded, never used to pick a source.
+        std::string source;
+        std::string shared;
+        std::string sharedDigest;
+        std::string state;
+        std::string stateDigest;
+        std::string legacy;
+        std::string legacyDigest;
+    };
+
+    // Merge the frozen shared XML with the selected profile state into the
+    // legacy single-file gamelist. Records present only in the state overlay
+    // are appended; personal fields are reset to their declarations before the
+    // overlay is applied, so a stale shared personal value can never survive.
+    // Blocking items (invalid keys, wrong-typed or unknown JSON, diagnostics)
+    // are reported and never hidden behind a success result. Returns false
+    // only for a refusal that makes no output meaningful; a successful call
+    // still verifies its own output before returning.
+    bool mergeSystem(const MergeRequest& request,
+                     const std::string& sharedXml,
+                     const std::string& stateJson,
+                     std::string& legacyXml,
+                     SystemResult& result,
+                     std::string& error);
+
+    // Prove that `legacyXml` carries the selected effective view: every
+    // representable field and system preference equals the selection, shared
+    // and unknown XML stay equivalent, no record exists outside the shared
+    // XML union the profile-only overlay, and re-splitting the produced
+    // gamelist reconstructs the same known view.
+    bool verifyMergedSystem(const MergeRequest& request,
+                            const std::string& sharedXml,
+                            const std::string& stateJson,
+                            const std::string& legacyXml,
+                            SystemResult& result,
+                            std::string& error);
 } // namespace MigrationSplit
 
 #endif // ES_TOOLS_MIGRATION_MIGRATION_SPLIT_H

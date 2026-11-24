@@ -1296,7 +1296,8 @@ TEST_CASE(wifiOpenNetworkFailureDoesNotRequestPasswordRetry)
     const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
     EXPECT(snapshot->failedSsid.empty());
     EXPECT(!snapshot->lastErrorNeedsPasswordRetry);
-    EXPECT(fixture.server.calls().removeNetwork == 1);
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().removeNetwork == 1; }));
     EXPECT(fixture.server.calls().saveConfig == 0);
 }
 

@@ -489,7 +489,7 @@ namespace Utils
                 return getPreferredPath(escapedPath);
 #else
             // Insert a backslash before most characters that would mess up a bash path.
-            const char* invalidChars {"\\ '\"!$^&*(){}[]?;<>"};
+            const char* invalidChars {"\\ '\"!$^&*(){}[]?;<>|`#~\t"};
             const char* invalidChar {invalidChars};
 
             while (*invalidChar) {
@@ -506,71 +506,59 @@ namespace Utils
                 }
                 ++invalidChar;
             }
-            return escapedPath;
+
+            // A newline or a carriage return cannot be escaped with a backslash in a portable
+            // way, so each one is handed to the shell as a quoted literal instead.
+            std::string quotedPath;
+            for (char character : escapedPath) {
+                if (character == '\n' || character == '\r') {
+                    quotedPath += '\'';
+                    quotedPath += character;
+                    quotedPath += '\'';
+                }
+                else {
+                    quotedPath += character;
+                }
+            }
+            return quotedPath;
 #endif
         }
 
         std::string getCanonicalPath(const std::string& path)
         {
             // Hack for builtin resources.
-            if ((path[0] == ':') && (path[1] == '/'))
+            if ((path.size() > 1) && (path[0] == ':') && (path[1] == '/'))
                 return path;
 
-            std::string canonicalPath {Utils::FileSystem::exists(path) ? getAbsolutePath(path) :
-                                                                         getGenericPath(path)};
+            const std::string& genericPath {getGenericPath(path)};
 
-            // Cleanup path.
-            bool scan {true};
-            while (scan) {
-                const StringList& pathList {getPathList(canonicalPath)};
+            if (genericPath.empty())
+                return genericPath;
 
-                canonicalPath.clear();
-                scan = false;
-
-                for (StringList::const_iterator it {pathList.cbegin()}; it != pathList.cend();
-                     ++it) {
-                    // Ignore empty.
-                    if ((*it).empty())
-                        continue;
-
-                    // Remove "/./"
-                    if ((*it) == ".")
-                        continue;
-
-                    // Resolve "/../"
-                    if ((*it) == "..") {
-                        canonicalPath = getParent(canonicalPath);
-                        continue;
-                    }
-
+            // weakly_canonical() resolves the part of the path that exists and normalizes the
+            // remainder lexically. Unlike the hand-written rescan loop it replaces, it gives up
+            // on a symlink cycle instead of following it forever.
+            std::error_code errorCode;
 #if defined(_WIN64)
-                    // Append folder to path.
-                    canonicalPath += (canonicalPath.size() == 0) ? (*it) : ("/" + (*it));
+            const std::filesystem::path widePath {Utils::String::stringToWideString(genericPath)};
+            const std::filesystem::path canonicalPath {
+                std::filesystem::weakly_canonical(widePath, errorCode)};
+
+            if (errorCode)
+                return getGenericPath(Utils::String::wideStringToString(
+                    widePath.lexically_normal().generic_wstring()));
+
+            return getGenericPath(
+                Utils::String::wideStringToString(canonicalPath.generic_wstring()));
 #else
-                    // Append folder to path.
-                    canonicalPath += ("/" + (*it));
+            const std::filesystem::path canonicalPath {
+                std::filesystem::weakly_canonical(genericPath, errorCode)};
+
+            if (errorCode)
+                return std::filesystem::path(genericPath).lexically_normal().generic_string();
+
+            return getGenericPath(canonicalPath.generic_string());
 #endif
-
-                    if (isSymlink(canonicalPath)) {
-                        const std::string& resolved {resolveSymlink(canonicalPath)};
-
-                        if (resolved.empty())
-                            return "";
-
-                        if (isAbsolute(resolved))
-                            canonicalPath = resolved;
-                        else
-                            canonicalPath = getParent(canonicalPath) + "/" + resolved;
-
-                        for (++it; it != pathList.cend(); ++it)
-                            canonicalPath += (canonicalPath.size() == 0) ? (*it) : ("/" + (*it));
-
-                        scan = true;
-                        break;
-                    }
-                }
-            }
-            return canonicalPath;
         }
 
         std::string getAbsolutePath(const std::string& path, const std::string& base)
@@ -681,16 +669,20 @@ namespace Utils
                                         const bool allowHome)
         {
             const std::string& genericPath {getGenericPath(path)};
-            const std::string& relativeToVar {isDirectory(relativeTo) ? getGenericPath(relativeTo) :
-                                                                        getParent(relativeTo)};
+            const std::string& relativeToVar {getGenericPath(relativeTo)};
 
             // Nothing to resolve.
             if (!genericPath.length())
                 return genericPath;
 
-            // Replace '.' with relativeToVar.
-            if ((genericPath[0] == '.') && (genericPath[1] == '/'))
+            // Replace './' with relativeToVar, which is always treated as a directory path.
+            if ((genericPath[0] == '.') && (genericPath[1] == '/')) {
+                // The filesystem root already ends with its separator.
+                if (relativeToVar == "/")
+                    return (relativeToVar + &(genericPath[2]));
+
                 return (relativeToVar + &(genericPath[1]));
+            }
 
             // Replace '~' with homePath.
             if (allowHome && (genericPath[0] == '~') && (genericPath[1] == '/'))
@@ -719,21 +711,77 @@ namespace Utils
             return relativePath;
         }
 
+        bool isNormalizedRelativePath(const std::string& path)
+        {
+            if (path.empty() || path.front() == '/' || path.back() == '/')
+                return false;
+
+            // A NUL cannot appear in a file name and would truncate the path in C interfaces.
+            if (path.find('\0') != std::string::npos)
+                return false;
+
+            std::size_t start {0};
+            while (start <= path.size()) {
+                const std::size_t separator {path.find('/', start)};
+                const std::size_t end {separator == std::string::npos ? path.size() : separator};
+                const std::size_t length {end - start};
+
+                // Consecutive separators produce an empty segment, which is never normalized.
+                if (length == 0)
+                    return false;
+
+                if (length == 1 && path[start] == '.')
+                    return false;
+
+                if (length == 2 && path[start] == '.' && path[start + 1] == '.')
+                    return false;
+
+                if (separator == std::string::npos)
+                    break;
+
+                start = separator + 1;
+            }
+
+            return true;
+        }
+
         std::string removeCommonPath(const std::string& path,
                                      const std::string& commonArg,
                                      bool& contains)
         {
             const std::string& genericPath {getGenericPath(path)};
-            const std::string& common {isDirectory(commonArg) ? getGenericPath(commonArg) :
-                                                                getParent(commonArg)};
-
-            if (genericPath.find(common) == 0) {
-                contains = true;
-                return genericPath.substr(common.length() + 1);
-            }
+            const std::string& common {getGenericPath(commonArg)};
+            std::string relative;
 
             contains = false;
-            return genericPath;
+
+            // The common argument is always treated as a directory path, and the root itself
+            // has no relative form.
+            if (common.empty() || genericPath.empty() || genericPath == common)
+                return genericPath;
+
+            if (common == "/") {
+                // A root of "/" already ends in the separator; the relative path starts after it.
+                if (genericPath.size() < 2 || genericPath.front() != '/')
+                    return genericPath;
+
+                relative = genericPath.substr(1);
+            }
+            else {
+                // A sibling that merely shares the string prefix is outside the directory.
+                if (genericPath.size() <= common.size() ||
+                    genericPath.compare(0, common.size(), common) != 0 ||
+                    genericPath[common.size()] != '/')
+                    return genericPath;
+
+                relative = genericPath.substr(common.size() + 1);
+            }
+
+            if (!isNormalizedRelativePath(relative))
+                return genericPath;
+
+            contains = true;
+            return relative;
         }
 
         std::string resolveSymlink(const std::string& path)
@@ -758,15 +806,12 @@ namespace Utils
                 CloseHandle(hFile);
             }
 #else
-            struct stat info;
+            std::error_code errorCode;
+            const std::filesystem::path target {
+                std::filesystem::read_symlink(genericPath, errorCode)};
 
-            // Check if lstat succeeded.
-            if (lstat(genericPath.c_str(), &info) == 0) {
-                resolved.resize(info.st_size);
-                if (readlink(genericPath.c_str(), const_cast<char*>(resolved.data()),
-                             resolved.size()) > 0)
-                    resolved = getGenericPath(resolved);
-            }
+            if (!errorCode)
+                resolved = getGenericPath(target.generic_string());
 #endif
             return resolved;
         }

@@ -1835,7 +1835,8 @@ void ThemeData::parseIncludes(const pugi::xml_node& root)
             throw error << ": Unsupported <formatVersion> tag found";
 
         std::string relPath {resolvePlaceholders(node.text().as_string())};
-        std::string path {Utils::FileSystem::resolveRelativePath(relPath, mPaths.back(), true)};
+        std::string path {Utils::FileSystem::resolveRelativePath(
+            relPath, Utils::FileSystem::getParent(mPaths.back()), true)};
 
         if (!ResourceManager::getInstance().fileExists(path)) {
             // For explicit paths, throw an error if the file couldn't be found, but only
@@ -2326,7 +2327,8 @@ void ThemeData::parseElement(const pugi::xml_node& root,
                 if (!str.empty() && str.front() == ':')
                     path = ResourceManager::getInstance().getResourcePath(str);
                 else
-                    path = Utils::FileSystem::resolveRelativePath(str, mPaths.back(), true);
+                    path = Utils::FileSystem::resolveRelativePath(
+                        str, Utils::FileSystem::getParent(mPaths.back()), true);
 
                 if (!ResourceManager::getInstance().fileExists(path)) {
                     std::stringstream ss;

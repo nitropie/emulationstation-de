@@ -663,7 +663,7 @@ void SystemView::populate()
                             theme, "system", element.first, ThemeFlags::ALL);
                         elements.children.emplace_back(elements.GIFAnimComponents.back().get());
                     }
-                    else if (extension == ".") {
+                    else if (extension.empty()) {
                         LOG(LogWarning) << "SystemView::populate(): Invalid theme configuration, "
                                            "animation file extension is missing";
                     }

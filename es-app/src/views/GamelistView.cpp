@@ -268,7 +268,7 @@ void GamelistView::onThemeChanged(const std::shared_ptr<ThemeData>& theme)
                         mGIFAnimComponents.back()->setScrollHide(true);
                     addChild(mGIFAnimComponents.back().get());
                 }
-                else if (extension == ".") {
+                else if (extension.empty()) {
                     LOG(LogWarning)
                         << "GamelistView::onThemeChanged(): Invalid theme configuration, "
                            "animation file extension is missing";
@@ -1333,6 +1333,7 @@ void GamelistView::setGameImage(FileData* file, GuiComponent* comp)
         return;
     }
 
-    // Sets per-game overrides of static images using the game file basename.
-    comp->setGameOverrideImage(Utils::FileSystem::getStem(file->getPath()), file->getSystemName());
+    // Sets per-game overrides of static images using the game display name, which is the name
+    // the media files use on disk.
+    comp->setGameOverrideImage(file->getDisplayName(), file->getSystemName());
 }

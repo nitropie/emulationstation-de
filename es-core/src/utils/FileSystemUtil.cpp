@@ -477,6 +477,30 @@ namespace Utils
             return genericPath;
         }
 
+        namespace
+        {
+            // The std::filesystem path for the spelling the helpers use, and back. On Windows the
+            // native wide string is required, as getFileSize() already does.
+            std::filesystem::path toPath(const std::string& path)
+            {
+#if defined(_WIN64)
+                return std::filesystem::path {
+                    Utils::String::stringToWideString(getGenericPath(path))};
+#else
+                return std::filesystem::path {getGenericPath(path)};
+#endif
+            }
+
+            std::string fromPath(const std::filesystem::path& path)
+            {
+#if defined(_WIN64)
+                return getGenericPath(Utils::String::wideStringToString(path.generic_wstring()));
+#else
+                return getGenericPath(path.generic_string());
+#endif
+            }
+        } // namespace
+
         std::string getEscapedPath(const std::string& path)
         {
             std::string escapedPath {getGenericPath(path)};
@@ -573,65 +597,22 @@ namespace Utils
 
         std::string getParent(const std::string& path)
         {
-            std::string genericPath {getGenericPath(path)};
-            size_t offset {std::string::npos};
-
-            // Find last '/' and erase it.
-            if ((offset = genericPath.find_last_of('/')) != std::string::npos)
-                return genericPath.erase(offset);
-
-            // No parent found.
-            return genericPath;
+            return fromPath(toPath(path).parent_path());
         }
 
         std::string getFileName(const std::string& path)
         {
-            const std::string& genericPath {getGenericPath(path)};
-            size_t offset {std::string::npos};
-
-            // Find last '/' and return the filename.
-            if ((offset = genericPath.find_last_of('/')) != std::string::npos)
-                return ((genericPath[offset + 1] == 0) ? "." :
-                                                         std::string {genericPath, offset + 1});
-
-            // No '/' found, entire path is a filename.
-            return genericPath;
+            return fromPath(toPath(path).filename());
         }
 
         std::string getStem(const std::string& path)
         {
-            std::string fileName {getFileName(path)};
-            size_t offset {std::string::npos};
-
-            // Empty fileName.
-            if (fileName == ".")
-                return fileName;
-
-            if (!Utils::FileSystem::isDirectory(path)) {
-                // Find last '.' and erase the extension.
-                if ((offset = fileName.find_last_of('.')) != std::string::npos)
-                    return fileName.erase(offset);
-            }
-
-            // No '.' found, filename has no extension.
-            return fileName;
+            return fromPath(toPath(path).stem());
         }
 
         std::string getExtension(const std::string& path)
         {
-            const std::string& fileName {getFileName(path)};
-            size_t offset {std::string::npos};
-
-            // Empty fileName.
-            if (fileName == ".")
-                return fileName;
-
-            // Find last '.' and return the extension.
-            if ((offset = fileName.find_last_of('.')) != std::string::npos)
-                return std::string {fileName, offset};
-
-            // No '.' found, filename has no extension.
-            return ".";
+            return fromPath(toPath(path).extension());
         }
 
         long getFileSize(const std::filesystem::path& path)
@@ -820,58 +801,21 @@ namespace Utils
                       const std::string& destinationPath,
                       bool overwrite)
         {
-            if (!Utils::FileSystem::exists(sourcePath)) {
-                LOG(LogError) << "Can't copy file, source file does not exist:";
-                LOG(LogError) << sourcePath;
-                return true;
+            std::error_code error;
+            const std::filesystem::copy_options options {
+                overwrite ? std::filesystem::copy_options::overwrite_existing :
+                            std::filesystem::copy_options::none};
+
+            std::filesystem::copy_file(toPath(sourcePath), toPath(destinationPath), options,
+                                       error);
+
+            if (error) {
+                LOG(LogError) << "Couldn't copy \"" << sourcePath << "\" to \""
+                              << destinationPath << "\": " << error.message();
+                return false;
             }
 
-            if (isDirectory(destinationPath)) {
-                LOG(LogError) << "Destination file is actually a directory:";
-                LOG(LogError) << destinationPath;
-                return true;
-            }
-
-            if (!overwrite && Utils::FileSystem::exists(destinationPath)) {
-                LOG(LogError) << "Destination file exists and the overwrite flag "
-                                 "has not been set";
-                return true;
-            }
-
-#if defined(_WIN64)
-            std::ifstream sourceFile {Utils::String::stringToWideString(sourcePath).c_str(),
-                                      std::ios::binary};
-#else
-            std::ifstream sourceFile {sourcePath, std::ios::binary};
-#endif
-
-            if (sourceFile.fail()) {
-                LOG(LogError) << "Couldn't read from source file \"" << sourcePath
-                              << "\", permission problems?";
-                sourceFile.close();
-                return true;
-            }
-
-#if defined(_WIN64)
-            std::ofstream targetFile {Utils::String::stringToWideString(destinationPath).c_str(),
-                                      std::ios::binary};
-#else
-            std::ofstream targetFile {destinationPath, std::ios::binary};
-#endif
-
-            if (targetFile.fail()) {
-                LOG(LogError) << "Couldn't write to target file \"" << destinationPath
-                              << "\", permission problems?";
-                targetFile.close();
-                return true;
-            }
-
-            targetFile << sourceFile.rdbuf();
-
-            sourceFile.close();
-            targetFile.close();
-
-            return false;
+            return true;
         }
 
         bool renameFile(const std::string& sourcePath,
@@ -985,33 +929,10 @@ namespace Utils
 
         bool createDirectory(const std::string& path)
         {
-            const std::string& genericPath {getGenericPath(path)};
+            std::error_code error;
+            std::filesystem::create_directories(toPath(path), error);
 
-            if (Utils::FileSystem::exists(genericPath))
-                return true;
-
-#if defined(_WIN64)
-            if (_wmkdir(Utils::String::stringToWideString(genericPath).c_str()) == 0)
-                return true;
-#else
-            if (mkdir(genericPath.c_str(), 0755) == 0)
-                return true;
-#endif
-
-            // Failed to create directory, try to create the parent.
-            const std::string& parent {getParent(genericPath)};
-
-            // Only try to create parent if it's not identical to genericPath.
-            if (parent != genericPath)
-                createDirectory(parent);
-
-            // Try to create directory again now that the parent should exist.
-
-#if defined(_WIN64)
-            return (_wmkdir(Utils::String::stringToWideString(genericPath).c_str()) == 0);
-#else
-            return (mkdir(genericPath.c_str(), 0755) == 0);
-#endif
+            return !error;
         }
 
         bool exists(const std::string& path)

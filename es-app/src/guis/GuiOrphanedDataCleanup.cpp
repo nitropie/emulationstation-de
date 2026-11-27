@@ -668,9 +668,12 @@ void GuiOrphanedDataCleanup::cleanupGamelists()
                 }
                 else if (Utils::FileSystem::exists(startPath + "/" + path)) {
                     if (tag == "game") {
-                        // Remove entries with extensions not defined in es_systems.xml.
-                        if (std::find(extensions.cbegin(), extensions.cend(),
-                                      Utils::FileSystem::getExtension(path)) != extensions.cend()) {
+                        // Remove entries with extensions not defined in es_systems.xml, where an
+                        // empty extension is spelled ".".
+                        const std::string extension {Utils::FileSystem::getExtension(path)};
+                        const std::string& matchExtension {extension.empty() ? "." : extension};
+                        if (std::find(extensions.cbegin(), extensions.cend(), matchExtension) !=
+                            extensions.cend()) {
                             targetRoot.append_copy((*it));
                         }
                         else {

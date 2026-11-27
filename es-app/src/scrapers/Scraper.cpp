@@ -784,7 +784,7 @@ std::string getSaveAsPath(const ScraperSearchParams& params,
                           const std::string& extension)
 {
     const std::string systemsubdirectory {params.system->getName()};
-    const std::string name {Utils::FileSystem::getStem(params.game->getPath())};
+    const std::string name {params.game->getDisplayName()};
     std::string subFolders;
 
     // Extract possible subfolders from the path.

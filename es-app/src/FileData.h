@@ -60,8 +60,14 @@ public:
 
     const std::string& getName() { return metadata.get("name"); }
     const std::string& getSortName();
-    // Returns our best guess at the "real" name for this file.
-    std::string getDisplayName() const { return Utils::FileSystem::getStem(mPath); }
+    // Returns our best guess at the "real" name for this file. A directory keeps its whole
+    // name, dots included, so folder entries and directories interpreted as files keep the
+    // names their media files use on disk; a regular file yields the stem of its file name.
+    std::string getDisplayName() const
+    {
+        return mIsDirectory ? Utils::FileSystem::getFileName(mPath) :
+                              Utils::FileSystem::getStem(mPath);
+    }
     std::string getCleanName() const
     {
         return Utils::String::removeParenthesis(this->getDisplayName());
@@ -201,6 +207,9 @@ private:
 
     FileType mType;
     std::string mPath;
+    // Set once at construction: whether the path is a directory, which decides whether the
+    // display name keeps its whole file name (see getDisplayName()).
+    bool mIsDirectory;
     SystemEnvironmentData* mEnvData;
     SystemData* mSystem;
     std::unordered_map<std::string, FileData*> mChildrenByFilename;

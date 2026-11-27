@@ -87,8 +87,12 @@ namespace GamelistFileParser
                 const std::vector<std::string>& extensions {
                     system->getSystemEnvData()->mSearchExtensions};
 
-                if (std::find(extensions.cbegin(), extensions.cend(),
-                              Utils::FileSystem::getExtension(path)) == extensions.cend()) {
+                // A file without an extension is spelled "." in es_systems.xml.
+                const std::string extension {Utils::FileSystem::getExtension(path)};
+                const std::string& matchExtension {extension.empty() ? "." : extension};
+
+                if (std::find(extensions.cbegin(), extensions.cend(), matchExtension) ==
+                    extensions.cend()) {
 #if defined(_WIN64)
                     LOG(LogWarning) << "File \"" << Utils::String::replace(path, "/", "\\")
 #else

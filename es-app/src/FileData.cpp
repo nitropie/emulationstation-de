@@ -83,6 +83,7 @@ FileData::FileData(FileType type,
     , mParent {nullptr}
     , mType {type}
     , mPath {path}
+    , mIsDirectory {Utils::FileSystem::isDirectory(path)}
     , mEnvData {envData}
     , mSystem {system}
     , mOnlyFolders {false}
@@ -100,10 +101,12 @@ FileData::FileData(FileType type,
         metadata.set("name", MameNames::getInstance().getCleanName(getCleanName()));
     }
     else {
-        if (metadata.getType() == FOLDER_METADATA && Utils::FileSystem::isHidden(mPath))
+        // A folder keeps its whole name, a game the stem of its file name, including a directory
+        // that is interpreted as a file.
+        if (metadata.getType() == FOLDER_METADATA)
             metadata.set("name", Utils::FileSystem::getFileName(mPath));
         else
-            metadata.set("name", getDisplayName());
+            metadata.set("name", Utils::FileSystem::getStem(mPath));
     }
 
     mSystemName = system->getName();

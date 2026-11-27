@@ -706,26 +706,6 @@ namespace GamelistFileParser
 
             return false;
         }
-
-        // The document entry that belongs to `file`, or an empty node.
-        pugi::xml_node findEntry(pugi::xml_node root,
-                                 const char* tag,
-                                 const FileData& file,
-                                 const std::string& startPath)
-        {
-            for (pugi::xml_node node {root.child(tag)}; node; node = node.next_sibling(tag)) {
-                const pugi::xml_node pathNode {node.child("path")};
-                if (!pathNode)
-                    continue;
-
-                const std::string nodePath {Utils::FileSystem::getCanonicalPath(
-                    Utils::FileSystem::resolveRelativePath(pathNode.text().get(), startPath, true))};
-                if (nodePath == Utils::FileSystem::getCanonicalPath(file.getPath()))
-                    return node;
-            }
-
-            return {};
-        }
     } // namespace
 
     std::string writeSharedDocument(const std::string& existingBytes,
@@ -764,6 +744,14 @@ namespace GamelistFileParser
                 preference.parent().remove_child(preference);
         }
 
+        // The index is built once for the document, exactly as updateGamelist builds it: the
+        // relative key first, and a canonical-path index for an entry written through a
+        // symlinked directory, which is built at most once and only when it is needed.
+        const std::string& startPath {system.getStartPath()};
+        EntryMap entryIndex {indexEntries(root, startPath, false)};
+        EntryMap canonicalIndex;
+        bool canonicalIndexBuilt {false};
+
         for (const FileData* record : records) {
             if (record == nullptr || record->getType() == PLACEHOLDER)
                 continue;
@@ -772,9 +760,21 @@ namespace GamelistFileParser
             const char* tag {isGame ? "game" : "folder"};
             const MetaDataListType type {isGame ? GAME_METADATA : FOLDER_METADATA};
 
+            const std::string recordKey {entryKey(record->getPath(), startPath)};
+            pugi::xml_node existing {findIndexedEntry(entryIndex, tag, recordKey)};
+
+            if (!existing) {
+                if (!canonicalIndexBuilt) {
+                    canonicalIndex = indexEntries(root, startPath, true);
+                    canonicalIndexBuilt = true;
+                }
+
+                existing = findIndexedEntry(canonicalIndex, tag,
+                                            Utils::FileSystem::getCanonicalPath(record->getPath()));
+            }
+
             // Unrecognized children survive the rewrite; the legacy writer drops them.
             std::vector<pugi::xml_node> unrecognized;
-            const pugi::xml_node existing {findEntry(root, tag, *record, system.getStartPath())};
             if (existing) {
                 for (pugi::xml_node child {existing.first_child()}; child;
                      child = child.next_sibling()) {
@@ -785,19 +785,28 @@ namespace GamelistFileParser
             }
 
             pugi::xml_node node {root.append_child(tag)};
-            record->metadata.appendToXML(node, true, system.getStartPath(), MD_FILTER_SHARED);
+            record->metadata.appendToXML(node, true, startPath, MD_FILTER_SHARED);
             node.prepend_child("path").text().set(
-                Utils::FileSystem::createRelativePath(record->getPath(), system.getStartPath(),
-                                                      false)
-                    .c_str());
+                Utils::FileSystem::createRelativePath(record->getPath(), startPath, false).c_str());
 
             // The unrecognized children are handles into the old entry. Keep that entry alive
             // until their copies belong to the new node; removing it first invalidates them.
             for (pugi::xml_node child : unrecognized)
                 node.append_copy(child);
 
-            if (existing)
+            // Drop the replaced entry from both indexes, as updateGamelist does, so a later
+            // record cannot match a removed node.
+            if (existing) {
+                const std::string nodePath {Utils::FileSystem::resolveRelativePath(
+                    existing.child("path").text().get(), startPath, true)};
+
+                entryIndex.erase(EntryKey {tag, entryKey(nodePath, startPath)});
+                if (canonicalIndexBuilt)
+                    canonicalIndex.erase(
+                        EntryKey {tag, Utils::FileSystem::getCanonicalPath(nodePath)});
+
                 root.remove_child(existing);
+            }
         }
 
         std::ostringstream stream;

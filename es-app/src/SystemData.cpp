@@ -645,9 +645,9 @@ std::optional<ProfileRecordKey> SystemData::personalKey(FileData& record) const
     if (source.getPath() == startPath)
         return std::nullopt;
 
-    // Do not use removeCommonPath() here: it accepts any string prefix, so "/roms/snes" would
-    // claim "/roms/snes-other/Game.sfc" and make it alias the relative key "other/Game.sfc".
-    // The profile key seam requires a directory boundary and rejects traversal.
+    // The key seam and the gamelist writer share one boundary rule: removeCommonPath() requires
+    // a directory separator after the root and rejects "." or ".." segments, so a sibling such
+    // as "/roms/snes-other/Game.sfc" stays outside and cannot alias "other/Game.sfc".
     const std::optional<ProfileRecordKey> key {ProfileRecordKey::fromRootPath(
         system->getName(),
         source.getType() == GAME ? ProfileRecordType::game : ProfileRecordType::folder, startPath,

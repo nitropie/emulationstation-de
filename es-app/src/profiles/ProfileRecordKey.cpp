@@ -12,45 +12,6 @@
 
 #include <utility>
 
-namespace
-{
-    // One segment of a relative path: non-empty and neither "." nor "..".
-    bool isNormalizedPath(const std::string& path)
-    {
-        if (path.empty() || path.front() == '/' || path.back() == '/')
-            return false;
-
-        // A NUL cannot appear in a file name and would truncate the path in C interfaces.
-        if (path.find('\0') != std::string::npos)
-            return false;
-
-        std::size_t start {0};
-        while (start <= path.size()) {
-            const std::size_t separator {path.find('/', start)};
-            const std::size_t end {separator == std::string::npos ? path.size() : separator};
-            const std::size_t length {end - start};
-
-            // Consecutive separators produce an empty segment, which is never normalized.
-            if (length == 0)
-                return false;
-
-            if (length == 1 && path[start] == '.')
-                return false;
-
-            if (length == 2 && path[start] == '.' && path[start + 1] == '.')
-                return false;
-
-            if (separator == std::string::npos)
-                break;
-
-            start = separator + 1;
-        }
-
-        return true;
-    }
-
-} // namespace
-
 bool isValidUtf8(const std::string& text)
 {
     std::size_t index {0};
@@ -115,7 +76,7 @@ std::optional<ProfileRecordKey> ProfileRecordKey::fromPath(std::string system,
                                                            const ProfileRecordType type,
                                                            std::string path)
 {
-    if (system.empty() || !isNormalizedPath(path) || !isValidUtf8(path))
+    if (system.empty() || !Utils::FileSystem::isNormalizedRelativePath(path) || !isValidUtf8(path))
         return std::nullopt;
 
     return ProfileRecordKey {std::move(system), type, std::move(path)};
@@ -127,25 +88,11 @@ std::optional<ProfileRecordKey> ProfileRecordKey::fromRootPath(
     const std::string& root,
     const std::string& path)
 {
-    const std::string genericRoot {Utils::FileSystem::getGenericPath(root)};
-    const std::string genericPath {Utils::FileSystem::getGenericPath(path)};
-    if (genericRoot.empty() || genericPath.empty())
-        return std::nullopt;
+    bool contains {false};
+    std::string relative {Utils::FileSystem::removeCommonPath(path, root, contains)};
 
-    std::string relative;
-    if (genericRoot == "/") {
-        // A root of "/" already ends in the separator; the relative path starts right after it.
-        if (genericPath.size() < 2 || genericPath.front() != '/')
-            return std::nullopt;
-        relative = genericPath.substr(1);
-    }
-    else {
-        if (genericPath.size() <= genericRoot.size() ||
-            genericPath.compare(0, genericRoot.size(), genericRoot) != 0 ||
-            genericPath[genericRoot.size()] != '/')
-            return std::nullopt;
-        relative = genericPath.substr(genericRoot.size() + 1);
-    }
+    if (!contains)
+        return std::nullopt;
 
     return fromPath(std::move(system), type, std::move(relative));
 }

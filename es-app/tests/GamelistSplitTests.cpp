@@ -262,6 +262,60 @@ TEST_CASE(sharedWriterPreservesNestedUnknownChildren)
     EXPECT(!game.child("favorite"));
 }
 
+TEST_CASE(sharedWriterReplacesEntriesWrittenInAnyPathForm)
+{
+    Fixture fixture;
+    FileData* first {fixture.node("First Game (USA).sfc")};
+    FileData* second {fixture.node("Second Game (USA).sfc")};
+    EXPECT(first != nullptr);
+    EXPECT(second != nullptr);
+    if (first == nullptr || second == nullptr)
+        return;
+
+    // "./" spells the first entry. The second is an absolute path written through a symlink to
+    // the system directory, so only the canonical-path fallback can match it.
+    const fs::path alias {fixture.roms.parent_path() / "snes-link"};
+    fs::remove(alias);
+    fs::create_symlink(fixture.roms, alias);
+    const std::string absoluteSecond {(alias / "Second Game (USA).sfc").string()};
+
+    const std::string existing {
+        "<?xml version=\"1.0\"?><gameList>"
+        "<game><path>./First Game (USA).sfc</path><name>Old First</name></game>"
+        "<game><path>" +
+        absoluteSecond +
+        "</path><name>Old Second</name></game>"
+        "</gameList>"};
+
+    first->metadata.set("name", "First Shared");
+    second->metadata.set("name", "Second Shared");
+
+    const std::string output {
+        GamelistFileParser::writeSharedDocument(existing, *fixture.system, {first, second})};
+
+    pugi::xml_document document;
+    const pugi::xml_parse_result parsed {document.load_buffer(output.data(), output.size())};
+    EXPECT(parsed);
+    if (!parsed)
+        return;
+
+    std::vector<std::string> paths;
+    std::vector<std::string> names;
+    for (pugi::xml_node node {document.child("gameList").child("game")}; node;
+         node = node.next_sibling("game")) {
+        paths.emplace_back(node.child("path").text().get());
+        names.emplace_back(node.child("name").text().get());
+    }
+
+    // One entry per record: a missed lookup would keep the old entry and append a second node
+    // for the same record. The names prove the old contents were replaced, not just counted.
+    const std::vector<std::string> expectedPaths {"./First Game (USA).sfc",
+                                                  "./Second Game (USA).sfc"};
+    const std::vector<std::string> expectedNames {"First Shared", "Second Shared"};
+    EXPECT(paths == expectedPaths);
+    EXPECT(names == expectedNames);
+}
+
 TEST_CASE(sharedWriterRefusesAnUnusableDocument)
 {
     Fixture fixture;

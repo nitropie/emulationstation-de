@@ -136,6 +136,65 @@ TEST_CASE(rootKeysRequireADirectoryBoundary)
     EXPECT(!ProfileRecordKey::fromRootPath("snes", ProfileRecordType::game, "/", "/").has_value());
 }
 
+TEST_CASE(fromRootPathKeepsItsSemanticsAtTheEdges)
+{
+    const auto fromRoot = [](const std::string& root, const std::string& path) {
+        return ProfileRecordKey::fromRootPath("snes", ProfileRecordType::game, root, path);
+    };
+
+    // An empty root is not a directory, whatever the path is.
+    EXPECT(!fromRoot("", "/roms/snes/Game.sfc").has_value());
+    EXPECT(!fromRoot("", "").has_value());
+
+    // A trailing separator on the root is normalized away before the boundary test.
+    const std::optional<ProfileRecordKey> trailingRoot {
+        fromRoot("/roms/snes/", "/roms/snes/Game.sfc")};
+    EXPECT(trailingRoot.has_value());
+    if (trailingRoot.has_value())
+        EXPECT(trailingRoot->path() == "Game.sfc");
+
+    // Backslashes are separators in the generic spelling on every platform.
+    const std::optional<ProfileRecordKey> windowsSpelling {
+        fromRoot("\\roms\\snes", "\\roms\\snes\\Hacks\\Game.sfc")};
+    EXPECT(windowsSpelling.has_value());
+    if (windowsSpelling.has_value())
+        EXPECT(windowsSpelling->path() == "Hacks/Game.sfc");
+
+    // A root that is not normalized is compared as written, and the resolved spelling is a
+    // different directory for the byte-wise boundary test.
+    const std::optional<ProfileRecordKey> dottedRoot {
+        fromRoot("/roms/./snes", "/roms/./snes/Game.sfc")};
+    EXPECT(dottedRoot.has_value());
+    if (dottedRoot.has_value())
+        EXPECT(dottedRoot->path() == "Game.sfc");
+    EXPECT(!fromRoot("/roms/./snes", "/roms/snes/Game.sfc").has_value());
+
+    const std::optional<ProfileRecordKey> dotdotRoot {
+        fromRoot("/roms/snes/../snes", "/roms/snes/../snes/Game.sfc")};
+    EXPECT(dotdotRoot.has_value());
+    if (dotdotRoot.has_value())
+        EXPECT(dotdotRoot->path() == "Game.sfc");
+    EXPECT(!fromRoot("/roms/snes/../snes", "/roms/snes/Game.sfc").has_value());
+
+    // A relative root is matched against a relative path.
+    const std::optional<ProfileRecordKey> relativeRoot {
+        fromRoot("roms/snes", "roms/snes/Game.sfc")};
+    EXPECT(relativeRoot.has_value());
+    if (relativeRoot.has_value())
+        EXPECT(relativeRoot->path() == "Game.sfc");
+
+    // The boundary applies to a relative root too: another relative path is never below it, so
+    // ignoring `contains` would hand the key an unrelated relative path.
+    EXPECT(!fromRoot("roms/snes", "other/Game.sfc").has_value());
+    EXPECT(!fromRoot("roms/snes", "roms/snes-other/Game.sfc").has_value());
+
+    // Invalid UTF-8 is rejected in the relative part and in a direct key alike.
+    EXPECT(!fromRoot("/roms/snes", std::string {"/roms/snes/Game\xFF.sfc"}).has_value());
+    EXPECT(!ProfileRecordKey::fromPath("snes", ProfileRecordType::game,
+                                       std::string {"Game\xFF.sfc"})
+                .has_value());
+}
+
 TEST_CASE(pathsThatEscapeTheSystemRootAreRejected)
 {
     const std::vector<std::string> rejected {

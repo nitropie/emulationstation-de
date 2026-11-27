@@ -62,6 +62,7 @@ namespace Utils
         std::string removeCommonPath(const std::string& path,
                                      const std::string& commonArg,
                                      bool& contains);
+        bool isNormalizedRelativePath(const std::string& path);
         std::string resolveSymlink(const std::string& path);
         bool copyFile(const std::string& sourcePath,
                       const std::string& destinationPath,

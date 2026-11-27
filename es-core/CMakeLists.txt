@@ -286,6 +286,7 @@ if(BUILD_TESTS)
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/BluetoothMessageParserTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/BluetoothStateTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/FakeWpaSupplicantServer.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/FileSystemUtilTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/WifiManagerTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/WifiMessageParserTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/WifiStateTests.cpp

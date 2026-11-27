@@ -21,8 +21,13 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
+
+#if !defined(_WIN64)
+#include <sys/types.h>
+#endif
 
 namespace ProfileState
 {
@@ -41,6 +46,16 @@ struct SystemEnvironmentData {
     std::vector<std::pair<std::string, std::string>> mLaunchCommands;
     std::vector<PlatformIds::PlatformId> mPlatformIds;
 };
+
+// The ancestor directories of the folder currently being populated, used to recognise a symlink
+// cycle without following it. POSIX identifies a directory by its (device, inode) pair; Windows
+// has no public equivalent, so the canonical path is recorded and compared with
+// std::filesystem::equivalent().
+#if defined(_WIN64)
+using DirectoryAncestors = std::set<std::string>;
+#else
+using DirectoryAncestors = std::set<std::pair<dev_t, ino_t>>;
+#endif
 
 class FindRules
 {
@@ -233,7 +248,6 @@ private:
     std::string mThemeFolder;
     std::shared_ptr<ThemeData> mTheme;
 
-    bool mSymlinkMaxDepthReached;
     bool mIsCollectionSystem;
     bool mIsCustomCollectionSystem;
     bool mIsGroupedCustomCollectionSystem;
@@ -243,6 +257,7 @@ private:
     bool mLaunchOnOtherScreen;
 
     bool populateFolder(FileData* folder);
+    bool populateFolder(FileData* folder, DirectoryAncestors& ancestors);
     void indexAllGameFilters(const FileData* folder);
     void setIsGameSystemStatus();
 

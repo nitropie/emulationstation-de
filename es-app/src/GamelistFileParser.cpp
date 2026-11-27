@@ -18,7 +18,9 @@
 
 #include <pugixml.hpp>
 
+#include <map>
 #include <sstream>
+#include <utility>
 #include <vector>
 
 namespace GamelistFileParser
@@ -30,7 +32,7 @@ namespace GamelistFileParser
         bool contains {false};
         std::string relative {Utils::FileSystem::removeCommonPath(path, root->getPath(), contains)};
 
-        if (!contains) {
+        if (!contains || !Utils::FileSystem::isNormalizedRelativePath(relative)) {
             LOG(LogError) << "Path \"" << path << "\" is outside system path \""
                           << system->getStartPath() << "\"";
             return nullptr;
@@ -132,6 +134,71 @@ namespace GamelistFileParser
 
         return nullptr;
     }
+
+    namespace
+    {
+        // (tag, entry key) and the node it identifies.
+        using EntryKey = std::pair<std::string, std::string>;
+        using EntryMap = std::map<EntryKey, pugi::xml_node>;
+
+        // The lookup key of a gamelist entry. An entry inside the system root is keyed by its
+        // normalized relative path, which is also how the loaded tree spells the same record; an
+        // entry that cannot be expressed that way is keyed by its absolute path instead.
+        std::string entryKey(const std::string& absolutePath, const std::string& startPath)
+        {
+            bool contains {false};
+            const std::string relative {
+                Utils::FileSystem::removeCommonPath(absolutePath, startPath, contains)};
+
+            if (contains)
+                return relative;
+
+            return Utils::FileSystem::getGenericPath(absolutePath);
+        }
+
+        // The first document node for every (tag, entry key) below `root`: a duplicate entry never
+        // displaces the earlier one, which is what the previous linear scan returned. With
+        // `canonical` set the key is the canonical path of the resolved node path, so an entry
+        // written through a differently spelled or symlinked directory still matches.
+        EntryMap indexEntries(pugi::xml_node root,
+                              const std::string& startPath,
+                              const bool canonical)
+        {
+            EntryMap entries;
+
+            for (const char* tag : {"game", "folder"}) {
+                for (pugi::xml_node node {root.child(tag)}; node;
+                     node = node.next_sibling(tag)) {
+                    const pugi::xml_node pathNode {node.child("path")};
+
+                    if (!pathNode) {
+                        LOG(LogError) << "<" << tag << "> node contains no <path> child";
+                        continue;
+                    }
+
+                    const std::string nodePath {Utils::FileSystem::resolveRelativePath(
+                        pathNode.text().get(), startPath, true)};
+                    const std::string key {canonical ?
+                                               Utils::FileSystem::getCanonicalPath(nodePath) :
+                                               entryKey(nodePath, startPath)};
+
+                    entries.emplace(EntryKey {tag, key}, node);
+                }
+            }
+
+            return entries;
+        }
+
+        // The node registered for `tag` and `key`, or an empty node.
+        pugi::xml_node findIndexedEntry(const EntryMap& entries,
+                                        const char* tag,
+                                        const std::string& key)
+        {
+            const EntryMap::const_iterator it {entries.find(EntryKey {tag, key})};
+
+            return (it != entries.cend()) ? it->second : pugi::xml_node {};
+        }
+    } // namespace
 
     void parseGamelist(SystemData* system)
     {
@@ -510,6 +577,13 @@ namespace GamelistFileParser
         if (rootFolder != nullptr) {
             int numUpdated {0};
 
+            // Index the existing entries once. The linear scan this replaces compared every
+            // changed record against every node, which made an ordinary update quadratic.
+            const std::string& startPath {system->getStartPath()};
+            EntryMap entryIndex {indexEntries(root, startPath, false)};
+            EntryMap canonicalIndex;
+            bool canonicalIndexBuilt {false};
+
             // Get only files, no folders.
             std::vector<FileData*> files {rootFolder->getFilesRecursive(GAME | FOLDER)};
             // Iterate through all files, checking if they're already in the XML file.
@@ -521,29 +595,37 @@ namespace GamelistFileParser
                 if (!(*fit)->metadata.wasChanged() && !(*fit)->getDeletionFlag())
                     continue;
 
-                // Check if the file already exists in the XML file.
-                // If it does, remove the entry before adding it back.
-                for (pugi::xml_node fileNode {root.child(tag.c_str())}; fileNode;
-                     fileNode = fileNode.next_sibling(tag.c_str())) {
-                    const pugi::xml_node& pathNode {fileNode.child("path")};
-                    if (!pathNode) {
-                        LOG(LogError) << "<" << tag << "> node contains no <path> child";
-                        continue;
+                // Look the record up by its relative key first. The canonical index is only
+                // needed for an entry that cannot be expressed relative to the root, such as one
+                // written through a symlinked directory, so it is built at most once per call.
+                const std::string recordKey {entryKey((*fit)->getPath(), startPath)};
+                pugi::xml_node existing {findIndexedEntry(entryIndex, tag.c_str(), recordKey)};
+
+                if (!existing) {
+                    if (!canonicalIndexBuilt) {
+                        canonicalIndex = indexEntries(root, startPath, true);
+                        canonicalIndexBuilt = true;
                     }
 
-                    const std::string& nodePath {
-                        Utils::FileSystem::getCanonicalPath(Utils::FileSystem::resolveRelativePath(
-                            pathNode.text().get(), system->getStartPath(), true))};
-                    const std::string& gamePath {
-                        Utils::FileSystem::getCanonicalPath((*fit)->getPath())};
+                    existing = findIndexedEntry(
+                        canonicalIndex, tag.c_str(),
+                        Utils::FileSystem::getCanonicalPath((*fit)->getPath()));
+                }
 
-                    if (nodePath == gamePath) {
-                        // Found it
-                        root.remove_child(fileNode);
-                        if ((*fit)->getDeletionFlag())
-                            ++numUpdated;
-                        break;
-                    }
+                // If the record is already in the XML file, remove the entry before adding it
+                // back. Both indexes drop it, so a later record cannot match a removed node.
+                if (existing) {
+                    const std::string nodePath {Utils::FileSystem::resolveRelativePath(
+                        existing.child("path").text().get(), startPath, true)};
+
+                    entryIndex.erase(EntryKey {tag, entryKey(nodePath, startPath)});
+                    if (canonicalIndexBuilt)
+                        canonicalIndex.erase(
+                            EntryKey {tag, Utils::FileSystem::getCanonicalPath(nodePath)});
+
+                    root.remove_child(existing);
+                    if ((*fit)->getDeletionFlag())
+                        ++numUpdated;
                 }
 
                 // Add the game to the file, unless it's flagged for deletion.

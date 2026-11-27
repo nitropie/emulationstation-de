@@ -31,6 +31,7 @@
 
 #include <fstream>
 #include <iterator>
+#include <algorithm>
 
 #if defined(__ANDROID__)
 #include "utils/PlatformUtilAndroid.h"
@@ -631,43 +632,60 @@ void FileData::removeChild(FileData* file)
 void FileData::sort(ComparisonFunction& comparator,
                     std::pair<unsigned int, unsigned int>& gameCount)
 {
+    sortImpl(comparator, gameCount, false);
+}
+
+void FileData::sortFavoritesOnTop(ComparisonFunction& comparator,
+                                  std::pair<unsigned int, unsigned int>& gameCount)
+{
+    sortImpl(comparator, gameCount, true);
+}
+
+void FileData::sortImpl(ComparisonFunction& comparator,
+                        std::pair<unsigned int, unsigned int>& gameCount,
+                        const bool favoritesOnTop)
+{
     mOnlyFolders = true;
     mHasFolders = false;
-    bool foldersOnTop {Settings::getInstance()->getBool("FoldersOnTop")};
-    bool showHiddenGames {Settings::getInstance()->getBool("ShowHiddenGames")};
-    bool isKidMode {UIModeController::getInstance()->isUIModeKid()};
-    std::vector<FileData*> mChildrenFolders;
-    std::vector<FileData*> mChildrenOthers;
 
-    if (mSystem->isGroupedCustomCollection())
+    const bool foldersOnTop {Settings::getInstance()->getBool("FoldersOnTop")};
+    const bool showHiddenGames {Settings::getInstance()->getBool("ShowHiddenGames")};
+    const bool isKidMode {UIModeController::getInstance()->isUIModeKid()};
+    const bool isGroupedCollection {mSystem->isGroupedCustomCollection()};
+
+    // A hidden game, and a folder whose entries were all hidden, are not sorted. The favourites
+    // path also drops an empty folder while hidden games are shown; the other path drops it only
+    // together with the hidden entries, and never for a grouped collection.
+    const auto isHiddenEntry = [&](FileData* child) {
+        if (!showHiddenGames && child->getHidden())
+            return true;
+
+        if (child->getType() != FOLDER || !child->getChildren().empty())
+            return false;
+
+        if (favoritesOnTop)
+            return true;
+
+        return !showHiddenGames && !child->getSystem()->isGroupedCustomCollection();
+    };
+
+    if (isGroupedCollection)
         gameCount = {0, 0};
 
-    if (!showHiddenGames) {
-        for (auto it = mChildren.begin(); it != mChildren.end();) {
-            // If the option to hide hidden games has been set and the game is hidden,
-            // then skip it. Normally games are hidden during loading of the gamelists in
-            // Gamelist::parseGamelist() and this code should only run when a user has marked
-            // an entry manually as hidden. So upon the next application startup, this game
-            // should be filtered already at that earlier point.
-            if ((*it)->getHidden())
-                it = mChildren.erase(it);
-            // Also hide folders where all its entries have been hidden, unless it's a
-            // grouped custom collection.
-            else if ((*it)->getType() == FOLDER && (*it)->getChildren().size() == 0 &&
-                     !(*it)->getSystem()->isGroupedCustomCollection())
-                it = mChildren.erase(it);
-            else
-                ++it;
-        }
+    // The favourites path filters its children after the collections check below, which leaves the
+    // main collections view untouched there; the other path filters first.
+    if (!favoritesOnTop) {
+        mChildren.erase(std::remove_if(mChildren.begin(), mChildren.end(), isHiddenEntry),
+                        mChildren.end());
     }
 
     // The main custom collections view is sorted during startup in CollectionSystemsManager.
     // The individual collections are however sorted as any normal systems/folders.
     if (mSystem->isCollection() && mSystem->getFullName() == "collections") {
         std::pair<unsigned int, unsigned int> tempGameCount {0, 0};
-        for (auto it = mChildren.cbegin(); it != mChildren.cend(); ++it) {
-            if ((*it)->getChildren().size() > 0)
-                (*it)->sort(comparator, gameCount);
+        for (FileData* child : mChildren) {
+            if (!child->getChildren().empty())
+                child->sortImpl(comparator, gameCount, favoritesOnTop);
             tempGameCount.first += gameCount.first;
             tempGameCount.second += gameCount.second;
             gameCount = {0, 0};
@@ -676,214 +694,101 @@ void FileData::sort(ComparisonFunction& comparator,
         return;
     }
 
-    if (foldersOnTop) {
-        for (unsigned int i {0}; i < mChildren.size(); ++i) {
-            if (mChildren[i]->getType() == FOLDER) {
-                mChildrenFolders.emplace_back(mChildren[i]);
-            }
-            else {
-                mChildrenOthers.emplace_back(mChildren[i]);
-                mOnlyFolders = false;
-            }
-        }
+    // The result is a concatenation of up to four groups. The other path fills the folder group
+    // and the other group; the favourites path puts the favourite folders and the favourite games
+    // in front.
+    std::vector<FileData*> favoriteFolders;
+    std::vector<FileData*> folders;
+    std::vector<FileData*> favorites;
+    std::vector<FileData*> others;
 
-        // If the requested sorting is not by name, then sort in ascending name order as a first
-        // step, in order to get a correct secondary sorting.
-        if (getSortTypeFromString("name, ascending").comparisonFunction != comparator &&
-            getSortTypeFromString("name, descending").comparisonFunction != comparator) {
-            std::stable_sort(mChildrenFolders.begin(), mChildrenFolders.end(),
-                             getSortTypeFromString("name, ascending").comparisonFunction);
-            std::stable_sort(mChildrenOthers.begin(), mChildrenOthers.end(),
-                             getSortTypeFromString("name, ascending").comparisonFunction);
-        }
-
-        if (foldersOnTop)
-            std::stable_sort(mChildrenFolders.begin(), mChildrenFolders.end(), comparator);
-
-        std::stable_sort(mChildrenOthers.begin(), mChildrenOthers.end(), comparator);
-
-        mChildren.erase(mChildren.begin(), mChildren.end());
-        mChildren.reserve(mChildrenFolders.size() + mChildrenOthers.size());
-        mChildren.insert(mChildren.end(), mChildrenFolders.begin(), mChildrenFolders.end());
-        mChildren.insert(mChildren.end(), mChildrenOthers.begin(), mChildrenOthers.end());
-    }
-    else {
-        // If the requested sorting is not by name, then sort in ascending name order as a first
-        // step, in order to get a correct secondary sorting.
-        if (getSortTypeFromString("name, ascending").comparisonFunction != comparator &&
-            getSortTypeFromString("name, descending").comparisonFunction != comparator)
-            std::stable_sort(mChildren.begin(), mChildren.end(),
-                             getSortTypeFromString("name, ascending").comparisonFunction);
-
-        std::stable_sort(mChildren.begin(), mChildren.end(), comparator);
-    }
-
-    for (auto it = mChildren.cbegin(); it != mChildren.cend(); ++it) {
-        // Game count, which will be displayed in the system view.
-        if ((*it)->getType() == GAME && (*it)->getCountAsGame()) {
-            if (!isKidMode || (isKidMode && (*it)->getKidgame())) {
-                ++gameCount.first;
-                if ((*it)->getFavorite())
-                    ++gameCount.second;
-            }
-        }
-
-        if ((*it)->getType() != FOLDER)
-            mOnlyFolders = false;
-        else
-            mHasFolders = true;
-
-        // Iterate through any child folders.
-        if ((*it)->getChildren().size() > 0)
-            (*it)->sort(comparator, gameCount);
-    }
-
-    if (mSystem->isGroupedCustomCollection())
-        mGameCount = gameCount;
-}
-
-void FileData::sortFavoritesOnTop(ComparisonFunction& comparator,
-                                  std::pair<unsigned int, unsigned int>& gameCount)
-{
-    mOnlyFolders = true;
-    mHasFolders = false;
-    bool foldersOnTop {Settings::getInstance()->getBool("FoldersOnTop")};
-    bool showHiddenGames {Settings::getInstance()->getBool("ShowHiddenGames")};
-    bool isKidMode {UIModeController::getInstance()->isUIModeKid()};
-    std::vector<FileData*> mChildrenFolders;
-    std::vector<FileData*> mChildrenFavoritesFolders;
-    std::vector<FileData*> mChildrenFavorites;
-    std::vector<FileData*> mChildrenOthers;
-
-    if (mSystem->isGroupedCustomCollection())
-        gameCount = {0, 0};
-
-    // The main custom collections view is sorted during startup in CollectionSystemsManager.
-    // The individual collections are however sorted as any normal systems/folders.
-    if (mSystem->isCollection() && mSystem->getFullName() == "collections") {
-        std::pair<unsigned int, unsigned int> tempGameCount = {0, 0};
-        for (auto it = mChildren.cbegin(); it != mChildren.cend(); ++it) {
-            if ((*it)->getChildren().size() > 0)
-                (*it)->sortFavoritesOnTop(comparator, gameCount);
-            tempGameCount.first += gameCount.first;
-            tempGameCount.second += gameCount.second;
-            gameCount = {0, 0};
-        }
-        gameCount = tempGameCount;
-        return;
-    }
-
-    for (unsigned int i {0}; i < mChildren.size(); ++i) {
-        // If the option to hide hidden games has been set and the game is hidden,
-        // then skip it. Normally games are hidden during loading of the gamelists in
-        // Gamelist::parseGamelist() and this code should only run when a user has marked
-        // an entry manually as hidden. So upon the next application startup, this game
-        // should be filtered already at that earlier point.
-        if (!showHiddenGames && mChildren[i]->getHidden())
-            continue;
-        // Also hide folders where all its entries have been hidden.
-        else if (mChildren[i]->getType() == FOLDER && mChildren[i]->getChildren().size() == 0)
+    for (FileData* child : mChildren) {
+        if (isHiddenEntry(child))
             continue;
 
-        // Game count, which will be displayed in the system view.
-        if (mChildren[i]->getType() == GAME && mChildren[i]->getCountAsGame()) {
-            if (!isKidMode || (isKidMode && mChildren[i]->getKidgame())) {
-                ++gameCount.first;
-                if (mChildren[i]->getFavorite())
-                    ++gameCount.second;
-            }
-        }
+        const bool isFolder {child->getType() == FOLDER};
 
-        if (foldersOnTop && mChildren[i]->getType() == FOLDER) {
-            if (!mChildren[i]->getFavorite())
-                mChildrenFolders.emplace_back(mChildren[i]);
+        if (favoritesOnTop && child->getFavorite()) {
+            if (foldersOnTop && isFolder)
+                favoriteFolders.emplace_back(child);
             else
-                mChildrenFavoritesFolders.emplace_back(mChildren[i]);
+                favorites.emplace_back(child);
         }
-        else if (mChildren[i]->getFavorite()) {
-            mChildrenFavorites.emplace_back(mChildren[i]);
+        else if (foldersOnTop && isFolder) {
+            folders.emplace_back(child);
         }
         else {
-            mChildrenOthers.emplace_back(mChildren[i]);
+            others.emplace_back(child);
         }
 
-        if (mChildren[i]->getType() != FOLDER)
-            mOnlyFolders = false;
-        else
+        if (isFolder)
             mHasFolders = true;
+        else
+            mOnlyFolders = false;
+
+        // Game count, which will be displayed in the system view.
+        if (child->getType() == GAME && child->getCountAsGame()) {
+            if (!isKidMode || child->getKidgame()) {
+                ++gameCount.first;
+                if (child->getFavorite())
+                    ++gameCount.second;
+            }
+        }
     }
 
-    if (mSystem->isGroupedCustomCollection())
+    // The favourites path publishes the count of this level before recursing into child folders,
+    // the other path after it. Both keep their current value for a grouped collection.
+    if (isGroupedCollection && favoritesOnTop)
         mGameCount = gameCount;
 
-    // If there are favorite folders and this is a mixed list, then don't handle these
+    // If there are favourite folders and this is a mixed list, then don't handle these
     // separately but instead merge them into the same vector. This is a quite wasteful
     // approach but the scenario where a user has a mixed folder and files list and marks
     // some folders as favorites is probably a rare situation.
-    if (!mOnlyFolders && mChildrenFavoritesFolders.size() > 0) {
-        mChildrenFolders.insert(mChildrenFolders.end(), mChildrenFavoritesFolders.begin(),
-                                mChildrenFavoritesFolders.end());
-        mChildrenFavoritesFolders.erase(mChildrenFavoritesFolders.begin(),
-                                        mChildrenFavoritesFolders.end());
-        std::stable_sort(mChildrenFolders.begin(), mChildrenFolders.end(),
+    if (favoritesOnTop && !mOnlyFolders && !favoriteFolders.empty()) {
+        folders.insert(folders.end(), favoriteFolders.begin(), favoriteFolders.end());
+        favoriteFolders.clear();
+        std::stable_sort(folders.begin(), folders.end(),
                          getSortTypeFromString("name, ascending").comparisonFunction);
     }
 
     // If the requested sorting is not by name, then sort in ascending name order as a first
     // step, in order to get a correct secondary sorting.
-    if (getSortTypeFromString("name, ascending").comparisonFunction != comparator &&
-        getSortTypeFromString("name, descending").comparisonFunction != comparator) {
-        std::stable_sort(mChildrenFolders.begin(), mChildrenFolders.end(),
-                         getSortTypeFromString("name, ascending").comparisonFunction);
-        std::stable_sort(mChildrenFavoritesFolders.begin(), mChildrenFavoritesFolders.end(),
-                         getSortTypeFromString("name, ascending").comparisonFunction);
-        std::stable_sort(mChildrenFavorites.begin(), mChildrenFavorites.end(),
-                         getSortTypeFromString("name, ascending").comparisonFunction);
-        std::stable_sort(mChildrenOthers.begin(), mChildrenOthers.end(),
-                         getSortTypeFromString("name, ascending").comparisonFunction);
-    }
+    ComparisonFunction* const nameAscending {
+        getSortTypeFromString("name, ascending").comparisonFunction};
+    ComparisonFunction* const nameDescending {
+        getSortTypeFromString("name, descending").comparisonFunction};
+    const bool secondaryNameSort {&comparator != nameAscending && &comparator != nameDescending};
 
-    // Sort favorite games and the other games separately.
-    if (foldersOnTop) {
-        std::stable_sort(mChildrenFavoritesFolders.begin(), mChildrenFavoritesFolders.end(),
-                         comparator);
-        std::stable_sort(mChildrenFolders.begin(), mChildrenFolders.end(), comparator);
-    }
-    std::stable_sort(mChildrenFavorites.begin(), mChildrenFavorites.end(), comparator);
-    std::stable_sort(mChildrenOthers.begin(), mChildrenOthers.end(), comparator);
+    const auto sortGroup = [&](std::vector<FileData*>& group) {
+        if (secondaryNameSort)
+            std::stable_sort(group.begin(), group.end(), nameAscending);
+        std::stable_sort(group.begin(), group.end(), comparator);
+    };
 
-    // Iterate through any child favorite folders.
-    for (auto it = mChildrenFavoritesFolders.cbegin(); // Line break.
-         it != mChildrenFavoritesFolders.cend(); ++it) {
-        if ((*it)->getChildren().size() > 0)
-            (*it)->sortFavoritesOnTop(comparator, gameCount);
-    }
+    sortGroup(favoriteFolders);
+    sortGroup(folders);
+    sortGroup(favorites);
+    sortGroup(others);
 
-    // Iterate through any child folders.
-    for (auto it = mChildrenFolders.cbegin(); it != mChildrenFolders.cend(); ++it) {
-        if ((*it)->getChildren().size() > 0)
-            (*it)->sortFavoritesOnTop(comparator, gameCount);
-    }
-
-    // If folders are not sorted on top, mChildrenFavoritesFolders and mChildrenFolders
-    // could be empty. So due to this, step through all mChildren and see if there are
-    // any folders that we need to iterate.
-    if (mChildrenFavoritesFolders.size() == 0 && mChildrenFolders.size() == 0) {
-        for (auto it = mChildren.cbegin(); it != mChildren.cend(); ++it) {
-            if ((*it)->getChildren().size() > 0)
-                (*it)->sortFavoritesOnTop(comparator, gameCount);
+    // Iterate through any child folders. The groups are disjoint, so every folder is visited once.
+    for (std::vector<FileData*>* group : {&favoriteFolders, &folders, &favorites, &others}) {
+        for (FileData* child : *group) {
+            if (!child->getChildren().empty())
+                child->sortImpl(comparator, gameCount, favoritesOnTop);
         }
     }
 
-    // Combine the individually sorted favorite games and other games vectors.
-    mChildren.erase(mChildren.begin(), mChildren.end());
-    mChildren.reserve(mChildrenFavoritesFolders.size() + mChildrenFolders.size() +
-                      mChildrenFavorites.size() + mChildrenOthers.size());
-    mChildren.insert(mChildren.end(), mChildrenFavoritesFolders.begin(),
-                     mChildrenFavoritesFolders.end());
-    mChildren.insert(mChildren.end(), mChildrenFolders.begin(), mChildrenFolders.end());
-    mChildren.insert(mChildren.end(), mChildrenFavorites.begin(), mChildrenFavorites.end());
-    mChildren.insert(mChildren.end(), mChildrenOthers.begin(), mChildrenOthers.end());
+    mChildren.clear();
+    mChildren.reserve(favoriteFolders.size() + folders.size() + favorites.size() +
+                      others.size());
+    mChildren.insert(mChildren.end(), favoriteFolders.begin(), favoriteFolders.end());
+    mChildren.insert(mChildren.end(), folders.begin(), folders.end());
+    mChildren.insert(mChildren.end(), favorites.begin(), favorites.end());
+    mChildren.insert(mChildren.end(), others.begin(), others.end());
+
+    if (isGroupedCollection && !favoritesOnTop)
+        mGameCount = gameCount;
 }
 
 void FileData::sort(const SortType& type, bool mFavoritesOnTop)

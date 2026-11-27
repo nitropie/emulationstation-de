@@ -118,6 +118,30 @@ TEST_CASE(mediaLookupForAGameDirectlyInTheSystemRoot)
            (media / "snes" / "covers" / "Direct.png").string());
 }
 
+TEST_CASE(mediaLookupOfADirectoryAsGameKeepsTheWholeName)
+{
+    const fs::path root {fixtureRoot() / "dirasgame"};
+    fs::remove_all(root);
+    const fs::path roms {root / "roms" / "snes"};
+    const fs::path romPath {roms / "Game.m3u"};
+    // A directory whose name has a configured extension, holding a file of the same name.
+    writeFile(romPath / "Game.m3u");
+
+    const fs::path media {root / "media"};
+    writeFile(media / "snes" / "covers" / "Game.m3u.png");
+
+    setTestSettings(media);
+
+    SystemData system {"snes", "Snes", "Snes", environment(roms), "snes", false, false};
+    FileData game {GAME, romPath.string(), system.getSystemEnvData(), &system};
+
+    // The media files on disk keep the whole directory name, while the metadata name is the stem.
+    EXPECT(game.getDisplayName() == "Game.m3u");
+    EXPECT(game.getName() == "Game");
+    EXPECT(game.getMediafilePath("covers") ==
+           (media / "snes" / "covers" / "Game.m3u.png").string());
+}
+
 TEST_CASE(mediaLookupIgnoresAStartPathThatIsOnlyAStringPrefix)
 {
     const fs::path root {fixtureRoot() / "prefix"};

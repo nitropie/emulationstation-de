@@ -486,8 +486,8 @@ void GuiGameImporter::selectorWindow()
 
     // Always use case-insensitive sorting of the actual filename exluding its path and extension.
     inputFileList.sort([](std::string a, std::string b) {
-        std::string aFile {Utils::FileSystem::getStem(Utils::FileSystem::getFileName(a))};
-        std::string bFile {Utils::FileSystem::getStem(Utils::FileSystem::getFileName(b))};
+        std::string aFile {Utils::FileSystem::getStem(a)};
+        std::string bFile {Utils::FileSystem::getStem(b)};
         return Utils::String::toUpper(aFile) < Utils::String::toUpper(bFile);
     });
 
@@ -502,13 +502,13 @@ void GuiGameImporter::selectorWindow()
     for (std::string& file : inputFileList) {
 #if defined(__ANDROID__)
         std::string mediaFile {mTempDir + "/icons/" +
-                               Utils::FileSystem::getStem(Utils::FileSystem::getFileName(file)) +
+                               Utils::FileSystem::getStem(file) +
                                mMediaFileExtension};
 #endif
 
         row.elements.clear();
         auto lbl = std::make_shared<TextComponent>(
-            Utils::FileSystem::getStem(Utils::FileSystem::getFileName(file)),
+            Utils::FileSystem::getStem(file),
             Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary);
 
 #if defined(__ANDROID__)
@@ -521,7 +521,7 @@ void GuiGameImporter::selectorWindow()
 
         if (mImportMediaAdditional->getState()) {
             mediaFileAdditional = mTempDir + "/media/" +
-                                  Utils::FileSystem::getStem(Utils::FileSystem::getFileName(file)) +
+                                  Utils::FileSystem::getStem(file) +
                                   mMediaFileExtension;
         }
 
@@ -662,7 +662,7 @@ void GuiGameImporter::importEntries()
 #endif
 
                 LOG(LogInfo) << "GuiGameImporter: Importing \""
-                             << Utils::FileSystem::getStem(Utils::FileSystem::getFileName(file))
+                             << Utils::FileSystem::getStem(file)
                              << "\"";
 
 #if defined(__ANDROID__)
@@ -824,7 +824,7 @@ void GuiGameImporter::fileRule(std::pair<const std::string, ImportRules::ImportR
                                                  Utils::FileSystem::getFileName(targetFile))) {
                     targetFile = {Utils::FileSystem::getParent(file)};
                     targetFile.append("/")
-                        .append(Utils::FileSystem::getStem(Utils::FileSystem::getFileName(file)))
+                        .append(Utils::FileSystem::getStem(file))
                         .append(" (")
                         .append(std::to_string(index))
                         .append(")")
@@ -1012,7 +1012,7 @@ void GuiGameImporter::desktopshortcutRule(
                         targetFileTemp = {Utils::FileSystem::getParent(file)};
                         targetFileTemp.append("/")
                             .append(
-                                Utils::FileSystem::getStem(Utils::FileSystem::getFileName(file)))
+                                Utils::FileSystem::getStem(file))
                             .append(" (")
                             .append(std::to_string(index))
                             .append(")")

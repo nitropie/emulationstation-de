@@ -698,13 +698,9 @@ GuiMetaDataEd::GuiMetaDataEd(MetaDataList* md,
                                 scraperParams.game->getCleanName()));
                         }
                         else {
-                            // For the special case where a directory has a supported file extension
-                            // and is therefore interpreted as a file, exclude the extension.
-                            if (scraperParams.game->getType() == GAME &&
-                                Utils::FileSystem::isDirectory(scraperParams.game->getFullPath()))
-                                ed->setValue(Utils::FileSystem::getStem(gamePath));
-                            else
-                                ed->setValue(gamePath);
+                            // gamePath already excludes the extension, for a regular file and for
+                            // a directory that is interpreted as a file alike.
+                            ed->setValue(gamePath);
                         }
                         if (gamePath == originalValue)
                             ed->setColor(mMenuColorPrimary);

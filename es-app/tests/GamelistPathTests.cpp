@@ -149,6 +149,134 @@ TEST_CASE(gamelistEntriesOutsideTheSystemRootAreRejected)
     EXPECT(relativePaths(system, FOLDER) == expectedFolders);
 }
 
+TEST_CASE(displayNamesAndExtensionMatchingFollowTheFilesystemSemantics)
+{
+    const fs::path root {fixtureRoot() / "names"};
+    fs::remove_all(root);
+    const fs::path roms {root / "roms" / "snes"};
+    writeFile(roms / "Vol. 2" / "Inside.sfc", "");
+    writeFile(roms / "Extensionless", "");
+    writeFile(roms / "Game.m3u" / "Game.m3u", "");
+    writeFile(roms / "Dr. Mario.nes", "");
+    writeFile(roms / ".sfc", "");
+
+    setTestSettings(false, true);
+
+    SystemEnvironmentData* env {new SystemEnvironmentData};
+    env->mStartPath = roms.string();
+    env->mSearchExtensions = {".sfc", ".m3u", ".nes", "."};
+    env->mLaunchCommands = {{"%EMULATOR% %ROM%", "Snes9x - Current"}};
+
+    SystemData system {"names", "Names", "Names", env, "snes", false, false};
+
+    const auto node = [&system](const std::string& relativePath) -> FileData* {
+        for (FileData* candidate : system.getRootFolder()->getChildrenRecursive()) {
+            bool contains {false};
+            const std::string relative {Utils::FileSystem::removeCommonPath(
+                candidate->getPath(), system.getStartPath(), contains)};
+            if (contains && relative == relativePath)
+                return candidate;
+        }
+
+        return nullptr;
+    };
+
+    // A folder's display name is its whole name: the dot in "Vol. 2" is not an extension.
+    FileData* folder {node("Vol. 2")};
+    EXPECT(folder != nullptr);
+    if (folder != nullptr) {
+        EXPECT(folder->getType() == FOLDER);
+        EXPECT(folder->getDisplayName() == "Vol. 2");
+        EXPECT(folder->getName() == "Vol. 2");
+    }
+
+    // An extensionless file is picked up when the system lists the "." token.
+    FileData* extensionless {node("Extensionless")};
+    EXPECT(extensionless != nullptr);
+    if (extensionless != nullptr) {
+        EXPECT(extensionless->getType() == GAME);
+        EXPECT(extensionless->getName() == "Extensionless");
+    }
+
+    // A directory interpreted as a file keeps its whole name for media lookups, while the
+    // metadata name is the stem.
+    FileData* directoryGame {node("Game.m3u")};
+    EXPECT(directoryGame != nullptr);
+    if (directoryGame != nullptr) {
+        EXPECT(directoryGame->getType() == GAME);
+        EXPECT(directoryGame->getName() == "Game");
+        EXPECT(directoryGame->getDisplayName() == "Game.m3u");
+    }
+
+    // A game name keeps its dots and loses only the extension.
+    FileData* dotted {node("Dr. Mario.nes")};
+    EXPECT(dotted != nullptr);
+    if (dotted != nullptr) {
+        EXPECT(dotted->getType() == GAME);
+        EXPECT(dotted->getName() == "Dr. Mario");
+    }
+
+    // A file named only ".sfc" keeps that name as its stem instead of being skipped as nameless.
+    FileData* dotFile {node(".sfc")};
+    EXPECT(dotFile != nullptr);
+    if (dotFile != nullptr) {
+        EXPECT(dotFile->getType() == GAME);
+        EXPECT(dotFile->getName() == ".sfc");
+    }
+}
+
+TEST_CASE(updateGamelistKeepsADirectoryAsGameEntry)
+{
+    const fs::path root {fixtureRoot() / "dirgame"};
+    fs::remove_all(root);
+    const fs::path roms {root / "roms" / "snes"};
+    writeFile(roms / "Game.m3u" / "Game.m3u", "");
+
+    setTestSettings(false, false);
+
+    SystemEnvironmentData* env {new SystemEnvironmentData};
+    env->mStartPath = roms.string();
+    env->mSearchExtensions = {".m3u"};
+    env->mLaunchCommands = {{"%EMULATOR% %ROM%", "Snes9x - Current"}};
+
+    SystemData system {"dirgame", "Dirgame", "Dirgame", env, "snes", false, false};
+
+    FileData* game {nullptr};
+    for (FileData* candidate : system.getRootFolder()->getChildrenRecursive()) {
+        if (candidate->getPath() == (roms / "Game.m3u").string())
+            game = candidate;
+    }
+    EXPECT(game != nullptr);
+    if (game == nullptr)
+        return;
+
+    EXPECT(game->getType() == GAME);
+    EXPECT(game->getName() == "Game");
+    EXPECT(game->getDisplayName() == "Game.m3u");
+    game->metadata.set("playcount", "3");
+
+    GamelistFileParser::updateGamelist(&system);
+
+    const fs::path gamelist {
+        TestEnvironment::appDataDirectory() / "gamelists" / "dirgame" / "gamelist.xml"};
+    pugi::xml_document document;
+    EXPECT(document.load_file(gamelist.string().c_str()));
+
+    // The entry's name differs from its display name, so the writer must not prune the node.
+    pugi::xml_node entry;
+    for (pugi::xml_node node {document.child("gameList").child("game")}; node;
+         node = node.next_sibling("game")) {
+        if (std::string {node.child("path").text().get()} == "./Game.m3u")
+            entry = node;
+    }
+
+    EXPECT(entry);
+    if (entry) {
+        EXPECT(std::string {entry.child("name").text().get()} == "Game");
+        EXPECT(std::string {entry.child("playcount").text().get()} == "3");
+    }
+}
+
 #if !defined(_WIN64)
 TEST_CASE(populateFolderSkipsSymlinkCyclesAndKeepsSiblingAliases)
 {

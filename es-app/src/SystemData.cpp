@@ -1000,31 +1000,22 @@ bool SystemData::populateFolder(FileData* folder, DirectoryAncestors& ancestors)
 
         // This is a little complicated because we allow a list
         // of extensions to be defined (delimited with a space).
-        // We first get the extension of the file itself:
+        // We first get the extension of the file itself, where an empty extension means a file
+        // without one; es_systems.xml spells that case as a "." token.
         extension = Utils::FileSystem::getExtension(filePath);
+        const std::string& matchExtension {extension.empty() ? "." : extension};
 
         isGame = false;
 
         if (std::find(mEnvData->mSearchExtensions.cbegin(), mEnvData->mSearchExtensions.cend(),
-                      extension) != mEnvData->mSearchExtensions.cend() &&
-            !(isDirectory && extension == ".")) {
+                      matchExtension) != mEnvData->mSearchExtensions.cend() &&
+            !(isDirectory && extension.empty())) {
             FileData* newGame {new FileData(GAME, filePath, mEnvData, this)};
 
             if (newGame->metadata.get("name") == "") {
                 LOG(LogWarning) << "Skipped \"" << filePath << "\" as it has no filename";
                 delete newGame;
                 continue;
-            }
-
-            // If adding a configured file extension to a directory it will get interpreted as
-            // a regular file. This is useful for displaying multi-file/multi-disc games as single
-            // entries or for emulators that can get directories passed to them as command line
-            // parameters instead of regular files. In these instances we remove the extension
-            // from the metadata name so it does not show up in the gamelists and similar.
-            if (isDirectory && extension != ".") {
-                const std::string folderName {newGame->metadata.get("name")};
-                newGame->metadata.set(
-                    "name", folderName.substr(0, folderName.length() - extension.length()));
             }
 
             // Prevent new arcade assets from being added.

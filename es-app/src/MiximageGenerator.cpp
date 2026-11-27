@@ -914,7 +914,7 @@ std::string MiximageGenerator::getSavePath() const
         return "";
     }
 
-    const std::string name {Utils::FileSystem::getStem(mGame->getPath())};
+    const std::string name {mGame->getDisplayName()};
     std::string subFolders;
 
     // Extract possible subfolders from the path.

@@ -196,7 +196,7 @@ public:
         std::string path;
         ThemeCapability capabilities;
 
-        std::string getName() const { return Utils::FileSystem::getStem(path); }
+        std::string getName() const { return Utils::FileSystem::getFileName(path); }
         std::string getThemePath(const std::string& system) const
         {
             return path + "/" + system + "/theme.xml";

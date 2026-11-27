@@ -170,6 +170,10 @@ public:
     void sort(ComparisonFunction& comparator, std::pair<unsigned int, unsigned int>& gameCount);
     void sortFavoritesOnTop(ComparisonFunction& comparator,
                             std::pair<unsigned int, unsigned int>& gameCount);
+    // The one implementation behind both public entry points.
+    void sortImpl(ComparisonFunction& comparator,
+                  std::pair<unsigned int, unsigned int>& gameCount,
+                  bool favoritesOnTop);
     void sort(const SortType& type, bool mFavoritesOnTop = false);
     MetaDataList metadata;
     // Only count the games, a cheaper alternative to a full sort when that is not required.

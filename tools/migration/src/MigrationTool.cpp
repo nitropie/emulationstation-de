@@ -376,7 +376,7 @@ namespace
             item.request = system;
             if (!MigrationSplit::splitSystem(system, gamelist, item.shared, item.state,
                                              item.result, error)) {
-                emitReport("refused", error, {});
+                emitReport("refused", system.system + ": " + error, {});
                 return 2;
             }
             pending.push_back(std::move(item));
@@ -411,7 +411,7 @@ namespace
             }
             if (!MigrationSplit::verifySystem(item.request, gamelist, storedShared, storedState,
                                               item.result, error)) {
-                emitReport("refused", error, {});
+                emitReport("refused", item.request.system + ": " + error, {});
                 return 2;
             }
             item.result.sharedDigest = MigrationSplit::hexDigest(item.shared);
@@ -458,7 +458,7 @@ namespace
             result.system = system.system;
             result.source = system.source;
             if (!MigrationSplit::verifySystem(system, gamelist, shared, state, result, error)) {
-                emitReport("refused", error, {});
+                emitReport("refused", system.system + ": " + error, {});
                 return 2;
             }
             result.sharedDigest = MigrationSplit::hexDigest(shared);
@@ -506,7 +506,7 @@ namespace
             }
             if (!MigrationSplit::mergeSystem(system, item.shared, item.state, item.legacy,
                                              item.result, error)) {
-                emitMergeReport("refused", error, {});
+                emitMergeReport("refused", system.system + ": " + error, {});
                 return 2;
             }
             pending.push_back(std::move(item));

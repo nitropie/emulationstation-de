@@ -628,3 +628,50 @@ TEST_CASE(verifyMergeDetectsAPreferenceChange)
     EXPECT(!MigrationSplit::verifyMergedSystem(request, shared, state, tampered, checked, error));
     EXPECT(has(error, "alternative emulator"));
 }
+
+TEST_CASE(splitWorksWhenTheRomRootIsAbsentOnDisk)
+{
+    // A system whose ROM directory is not present must still resolve <path> against the
+    // declared start path. Resolving against its parent leaves the original nodes in
+    // place and appends duplicates, which doubles the verified record count.
+    const std::string bytes {"<?xml version=\"1.0\"?>\n"
+                             "<gameList>\n"
+                             "\t<folder>\n"
+                             "\t\t<path>./Folder</path>\n"
+                             "\t\t<name>Folder</name>\n"
+                             "\t</folder>\n"
+                             "\t<game>\n"
+                             "\t\t<path>./Folder/Game.sfc</path>\n"
+                             "\t\t<name>Game</name>\n"
+                             "\t</game>\n"
+                             "\t<game>\n"
+                             "\t\t<path>Bare.sfc</path>\n"
+                             "\t\t<name>Bare</name>\n"
+                             "\t</game>\n"
+                             "</gameList>\n"};
+
+    MigrationSplit::SystemRequest request {requestFor()};
+    request.romRoot = "/nonexistent/cart0/roms/snes";
+
+    std::string shared;
+    std::string state;
+    std::string error;
+    MigrationSplit::SystemResult result;
+    const bool split {
+        MigrationSplit::splitSystem(request, bytes, shared, state, result, error)};
+    if (!split)
+        std::printf("--- split refused: %s ---\n", error.c_str());
+    EXPECT(split);
+    EXPECT(result.records == 3);
+
+    size_t paths {0};
+    for (size_t pos = shared.find("<path>"); pos != std::string::npos;
+         pos = shared.find("<path>", pos + 1)) {
+        ++paths;
+    }
+    EXPECT(paths == 3);
+    EXPECT(has(shared, "<path>./Folder</path>"));
+    EXPECT(has(shared, "<path>./Folder/Game.sfc</path>"));
+    EXPECT(has(shared, "<path>./Bare.sfc</path>"));
+    EXPECT(!has(shared, "<path>./snes/"));
+}

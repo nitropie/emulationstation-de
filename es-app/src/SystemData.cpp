@@ -34,8 +34,15 @@
 #include <SDL2/SDL_timer.h>
 
 #include <fstream>
+#include <filesystem>
 #include <pugixml.hpp>
 #include <random>
+#include <set>
+#include <utility>
+
+#if !defined(_WIN64)
+#include <sys/stat.h>
+#endif
 
 FindRules::FindRules()
 {
@@ -543,7 +550,6 @@ SystemData::SystemData(const std::string& name,
     , mSortName {sortName}
     , mEnvData {envData}
     , mThemeFolder {themeFolder}
-    , mSymlinkMaxDepthReached {false}
     , mIsCollectionSystem {CollectionSystem}
     , mIsCustomCollectionSystem {CustomCollectionSystem}
     , mIsGroupedCustomCollectionSystem {false}
@@ -882,11 +888,80 @@ void SystemData::storeLaunchOnOtherScreen()
     flushPersonalState();
 }
 
+namespace
+{
+#if defined(_WIN64)
+    // The canonical path of the directory `path` resolves to, or no value when it cannot be
+    // resolved (a broken symlink, or a symlink cycle).
+    std::optional<std::string> directoryIdentity(const std::string& path)
+    {
+        std::error_code error;
+        const std::filesystem::path canonical {
+            std::filesystem::canonical(Utils::FileSystem::getGenericPath(path), error)};
+
+        if (error)
+            return std::nullopt;
+
+        return canonical.string();
+    }
+#else
+    // The (device, inode) pair of the directory `path` resolves to, or no value when it cannot be
+    // resolved (a broken symlink, or a symlink cycle).
+    std::optional<std::pair<dev_t, ino_t>> directoryIdentity(const std::string& path)
+    {
+        struct stat info;
+
+        if (stat(path.c_str(), &info) != 0)
+            return std::nullopt;
+
+        return std::make_pair(info.st_dev, info.st_ino);
+    }
+#endif
+
+    // Fills `identity` with the identity of the directory `path` resolves to. Returns true when
+    // the directory has to be skipped: it is one of its own ancestors (a symlink cycle), or it
+    // cannot be resolved at all (a broken symlink).
+    bool isRecursiveDirectory(const std::string& path,
+                              const DirectoryAncestors& ancestors,
+                              DirectoryAncestors::value_type& identity)
+    {
+        const auto resolved {directoryIdentity(path)};
+
+        if (!resolved.has_value())
+            return true;
+
+        identity = *resolved;
+
+#if defined(_WIN64)
+        // The canonical path is stable, but compare file ids as well so another spelling of an
+        // ancestor is caught too.
+        std::error_code error;
+        for (const std::string& ancestor : ancestors) {
+            if (std::filesystem::equivalent(path, ancestor, error))
+                return true;
+
+            error.clear();
+        }
+#endif
+
+        return ancestors.count(identity) != 0;
+    }
+} // namespace
+
 bool SystemData::populateFolder(FileData* folder)
 {
-    if (mSymlinkMaxDepthReached)
-        return false;
+    // The root is the first ancestor of everything below it, so a symlink back to it is caught.
+    DirectoryAncestors ancestors;
+    const auto rootIdentity {directoryIdentity(mEnvData->mStartPath)};
 
+    if (rootIdentity.has_value())
+        ancestors.insert(*rootIdentity);
+
+    return populateFolder(folder, ancestors);
+}
+
+bool SystemData::populateFolder(FileData* folder, DirectoryAncestors& ancestors)
+{
     std::string filePath;
     std::string extension;
     const std::string& folderPath {folder->getPath()};
@@ -915,15 +990,6 @@ bool SystemData::populateFolder(FileData* folder)
          it != dirContent.cend(); ++it) {
         filePath = *it;
         const bool isDirectory {Utils::FileSystem::isDirectory(filePath)};
-
-        // Skip any recursive symlinks as those would hang the application at various places.
-        if (Utils::FileSystem::isSymlink(filePath)) {
-            if (Utils::FileSystem::resolveSymlink(filePath) ==
-                Utils::FileSystem::getFileName(filePath)) {
-                LOG(LogWarning) << "Skipped \"" << filePath << "\" as it's a recursive symlink";
-                continue;
-            }
-        }
 
         // Skip hidden files and folders.
         if (!showHiddenFiles && Utils::FileSystem::isHidden(filePath)) {
@@ -973,44 +1039,13 @@ bool SystemData::populateFolder(FileData* folder)
 
         // Add directories that also do not match an extension as folders.
         if (!isGame && isDirectory) {
-            // Make sure that it's not a recursive symlink as the application would run into a
-            // loop trying to resolve the link.
-            if (Utils::FileSystem::isSymlink(filePath)) {
-                bool recursiveSymlink {false};
-                const std::string& canonicalPath {Utils::FileSystem::getCanonicalPath(filePath)};
-                const std::string& canonicalStartPath {
-                    Utils::FileSystem::getCanonicalPath(mEnvData->mStartPath)};
-                // Last resort hack to prevent recursive symlinks in some really unusual situations.
-                if (filePath.length() > canonicalStartPath.length() + 100) {
-                    int folderDepth {0};
-                    const std::string& path {filePath.substr(canonicalStartPath.length())};
-                    for (char character : path) {
-                        if (character == '/') {
-                            ++folderDepth;
-                            if (folderDepth == 20) {
-                                LOG(LogWarning) << "Skipped \"" << filePath
-                                                << "\" as it seems to be a recursive symlink";
-                                mSymlinkMaxDepthReached = true;
-                                return false;
-                            }
-                        }
-                    }
-                }
-                if (canonicalStartPath.find(canonicalPath) != std::string::npos)
-                    recursiveSymlink = true;
-                else if (canonicalPath.size() >= canonicalStartPath.size() &&
-                         canonicalPath.find(canonicalStartPath) != std::string::npos) {
-                    const std::string& combinedPath {
-                        mEnvData->mStartPath +
-                        canonicalPath.substr(canonicalStartPath.size(),
-                                             canonicalStartPath.size() - canonicalPath.size())};
-                    if (Utils::FileSystem::getParent(filePath).find(combinedPath) == 0)
-                        recursiveSymlink = true;
-                }
-                if (recursiveSymlink) {
-                    LOG(LogWarning) << "Skipped \"" << filePath << "\" as it's a recursive symlink";
-                    continue;
-                }
+            // A symlink cycle would make the scan follow its own ancestors forever, and a broken
+            // symlink cannot be entered at all.
+            DirectoryAncestors::value_type identity;
+            if (isRecursiveDirectory(filePath, ancestors, identity)) {
+                LOG(LogWarning) << "Skipped \"" << filePath
+                                << "\" as it's a recursive or broken symlink";
+                continue;
             }
 
             if (Utils::FileSystem::exists(filePath + "/noload.txt")) {
@@ -1028,7 +1063,9 @@ bool SystemData::populateFolder(FileData* folder)
             }
 
             FileData* newFolder {new FileData(FOLDER, filePath, mEnvData, this)};
-            populateFolder(newFolder);
+            ancestors.insert(identity);
+            populateFolder(newFolder, ancestors);
+            ancestors.erase(identity);
 
             if (mFlattenFolders) {
                 for (auto& entry : newFolder->getChildrenByFilename())

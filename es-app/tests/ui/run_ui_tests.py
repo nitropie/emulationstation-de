@@ -196,6 +196,13 @@ def stage_profile(fixture_root, run_dir, profile):
 
     stage_gamelist_data(fixture_root, home, appdata)
 
+    # Profile mode reads the shared library gamelists from the catalog's libraryRoot.
+    library_gamelists = os.path.join(run_dir, "library", "gamelists")
+    os.makedirs(library_gamelists, exist_ok=True)
+    for system in sorted(os.listdir(os.path.join(fixture_root, "gamelists"))):
+        shutil.copytree(os.path.join(fixture_root, "gamelists", system),
+                        os.path.join(library_gamelists, system), dirs_exist_ok=True)
+
     for name in os.listdir(os.path.join(fixture_root, "avatars")):
         src = os.path.join(fixture_root, "avatars", name)
         if os.path.isfile(src):

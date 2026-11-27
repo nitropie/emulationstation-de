@@ -35,6 +35,11 @@ private:
     void selectAvatar(const int index);
     void setMessage(const std::string& text, const bool isError);
     int avatarCount() const;
+    float scale() const;
+    float tileSize() const;
+    float tileGap() const;
+    float gridTop() const;
+    glm::vec2 nameRowSize() const;
     glm::vec2 tilePosition(int index) const;
     glm::vec2 nameRowPosition() const;
 

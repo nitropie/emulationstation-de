@@ -146,7 +146,7 @@ namespace
             const std::string home {(root / "home").string()};
             writeFile(catalog,
                       "{\"version\": 1, \"default\": \"" + std::string {sProfileId} +
-                          "\", \"libraryRoot\": \"" + (root / "library").string() +
+                          "\", \"libraryRoot\": \"" + appdata.string() +
                           "\", \"avatarManifest\": \"" + avatars.string() +
                           "\", \"profiles\": [{\"id\": \"" + std::string {sProfileId} +
                           "\", \"metadata\": \"" + metadata.string() + "\", \"home\": \"" + home +

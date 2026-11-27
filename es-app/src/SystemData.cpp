@@ -2019,8 +2019,13 @@ SystemData* SystemData::getPrev() const
 std::string SystemData::getGamelistPath(bool forWrite) const
 {
     std::string filePath {mRootFolder->getPath() + "/gamelist.xml"};
-    const std::string gamelistPath {Utils::FileSystem::getAppDataDirectory() + "/gamelists/" +
-                                    mName};
+    // A profile session reads the shared library gamelists directly. Personal fields live in the
+    // profile state store and shared writes are refused, so the shared path is read-only here.
+    const std::string gamelistPath {(ProfileMode::isMode() && ProfileMode::session().active())
+                                        ? ProfileMode::session().libraryRoot() + "/gamelists/" +
+                                              mName
+                                        : Utils::FileSystem::getAppDataDirectory() + "/gamelists/" +
+                                              mName};
 
     if (Utils::FileSystem::exists(filePath)) {
         if (Settings::getInstance()->getBool("LegacyGamelistFileLocation")) {

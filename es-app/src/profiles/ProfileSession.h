@@ -52,6 +52,8 @@ namespace ProfileSession
         const std::string& metadataPath() const { return mEntry.metadata; }
         const std::string& avatarManifestPath() const { return mCatalog.avatarManifest; }
         const std::string& defaultProfileId() const { return mCatalog.defaultProfile; }
+        // Shared library root from the catalog; the frontend reads shared gamelists from here.
+        const std::string& libraryRoot() const { return mCatalog.libraryRoot; }
         const CatalogEntry& entry() const { return mEntry; }
         const Catalog& catalog() const { return mCatalog; }
 

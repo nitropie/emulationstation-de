@@ -16,9 +16,9 @@
 namespace
 {
     constexpr int sColumns {4};
-    constexpr float sTileSize {96.0f};
-    constexpr float sGap {18.0f};
-    constexpr float sGridTop {240.0f};
+    constexpr float sTileSize {76.0f};
+    constexpr float sGap {14.0f};
+    constexpr float sGridTop {176.0f};
     constexpr unsigned int sBackgroundColor {0x14141EFF};
     constexpr unsigned int sTileColor {0x2A2A38FF};
     constexpr unsigned int sHighlightColor {0xF2C14EFF};
@@ -36,35 +36,33 @@ GuiProfile::GuiProfile()
 
     mReadOnly = !ProfileMode::isResolved();
 
-    mTitle = std::make_shared<TextComponent>(_("PROFILE"), Font::get(FONT_SIZE_LARGE),
-                                             sTextColor, ALIGN_CENTER);
-    mTitle->setPosition(0.0f, 54.0f);
-    mTitle->setSize(mWidth, 46.0f);
+    const float s {scale()};
+
+    mTitle = std::make_shared<TextComponent>(
+        _("PROFILE"), Font::get(FONT_SIZE_LARGE), sTextColor, ALIGN_CENTER, ALIGN_CENTER,
+        glm::ivec2 {0, 0}, glm::vec3 {0.0f, 32.0f * s, 0.0f}, glm::vec2 {mWidth, 52.0f * s});
     addChild(mTitle.get());
 
-    mName = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MEDIUM), sTextColor,
-                                            ALIGN_CENTER);
     const glm::vec2 namePosition {nameRowPosition()};
-    mName->setPosition(namePosition.x, namePosition.y + 8.0f);
-    mName->setSize(mWidth - 2.0f * namePosition.x, 30.0f);
+    const glm::vec2 nameSize {nameRowSize()};
+    mName = std::make_shared<TextComponent>(
+        "", Font::get(FONT_SIZE_MEDIUM), sTextColor, ALIGN_CENTER, ALIGN_CENTER,
+        glm::ivec2 {0, 0}, glm::vec3 {namePosition.x, namePosition.y, 0.0f}, nameSize);
     addChild(mName.get());
 
-    mAvatarLabel = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MEDIUM),
-                                                   sTextColor, ALIGN_CENTER);
-    mAvatarLabel->setPosition(0.0f, sGridTop + 4.0f * (sTileSize + sGap) + 12.0f);
-    mAvatarLabel->setSize(mWidth, 30.0f);
+    mAvatarLabel = std::make_shared<TextComponent>(
+        "", Font::get(FONT_SIZE_MEDIUM), sTextColor, ALIGN_CENTER, ALIGN_CENTER,
+        glm::ivec2 {0, 0}, glm::vec3 {0.0f, 540.0f * s, 0.0f}, glm::vec2 {mWidth, 38.0f * s});
     addChild(mAvatarLabel.get());
 
-    mMessage = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MEDIUM), sDimTextColor,
-                                               ALIGN_CENTER);
-    mMessage->setPosition(0.0f, mHeight - 92.0f);
-    mMessage->setSize(mWidth, 30.0f);
+    mMessage = std::make_shared<TextComponent>(
+        "", Font::get(FONT_SIZE_MEDIUM), sDimTextColor, ALIGN_CENTER, ALIGN_CENTER,
+        glm::ivec2 {0, 0}, glm::vec3 {0.0f, 588.0f * s, 0.0f}, glm::vec2 {mWidth, 38.0f * s});
     addChild(mMessage.get());
 
-    mHint = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL), sDimTextColor,
-                                            ALIGN_CENTER);
-    mHint->setPosition(0.0f, mHeight - 58.0f);
-    mHint->setSize(mWidth, 24.0f);
+    mHint = std::make_shared<TextComponent>(
+        "", Font::get(FONT_SIZE_SMALL), sDimTextColor, ALIGN_CENTER, ALIGN_CENTER,
+        glm::ivec2 {0, 0}, glm::vec3 {0.0f, 640.0f * s, 0.0f}, glm::vec2 {mWidth, 28.0f * s});
     addChild(mHint.get());
 
     rebuild();
@@ -76,19 +74,47 @@ GuiProfile::GuiProfile()
                    true);
 }
 
+float GuiProfile::scale() const
+{
+    return mHeight / 720.0f;
+}
+
+float GuiProfile::tileSize() const
+{
+    return sTileSize * scale();
+}
+
+float GuiProfile::tileGap() const
+{
+    return sGap * scale();
+}
+
+float GuiProfile::gridTop() const
+{
+    return sGridTop * scale();
+}
+
+glm::vec2 GuiProfile::nameRowSize() const
+{
+    const float s {scale()};
+    return {std::min(600.0f * s, mWidth * 0.85f), 48.0f * s};
+}
+
 glm::vec2 GuiProfile::nameRowPosition() const
 {
-    constexpr float width {600.0f};
-    return {(mWidth - width) / 2.0f, 150.0f};
+    const glm::vec2 size {nameRowSize()};
+    return {(mWidth - size.x) / 2.0f, 104.0f * scale()};
 }
 
 glm::vec2 GuiProfile::tilePosition(const int index) const
 {
     const int column {index % sColumns};
     const int row {index / sColumns};
-    const float gridWidth {sColumns * sTileSize + (sColumns - 1) * sGap};
-    const float x {(mWidth - gridWidth) / 2.0f + column * (sTileSize + sGap)};
-    const float y {sGridTop + row * (sTileSize + sGap)};
+    const float size {tileSize()};
+    const float gap {tileGap()};
+    const float gridWidth {sColumns * size + (sColumns - 1) * gap};
+    const float x {(mWidth - gridWidth) / 2.0f + column * (size + gap)};
+    const float y {gridTop() + row * (size + gap)};
     return {x, y};
 }
 
@@ -109,11 +135,12 @@ void GuiProfile::rebuild()
     if (manifest == nullptr)
         return;
 
+    const float size {tileSize()};
     for (const ProfileAvatars::AvatarEntry& entry : manifest->avatars()) {
         const glm::vec2 position {tilePosition(static_cast<int>(mTiles.size()))};
         std::shared_ptr<ImageComponent> tile {std::make_shared<ImageComponent>()};
         tile->setPosition(position.x, position.y);
-        tile->setSize(sTileSize, sTileSize);
+        tile->setResize(size, size);
         tile->setImage(manifest->pathFor(entry));
         addChild(tile.get());
         mTiles.push_back(tile);
@@ -273,40 +300,44 @@ void GuiProfile::render(const glm::mat4& parentTrans)
 {
     Renderer* renderer {Renderer::getInstance()};
     const glm::mat4 trans {parentTrans * getTransform()};
+    const float border {std::max(1.0f, std::round(3.0f * scale()))};
 
+    renderer->setMatrix(trans);
     renderer->drawRect(0.0f, 0.0f, mWidth, mHeight, sBackgroundColor, sBackgroundColor);
 
     // Name row.
     const glm::vec2 namePosition {nameRowPosition()};
-    renderer->drawRect(namePosition.x, namePosition.y, mWidth - 2.0f * namePosition.x, 44.0f,
-                       0x22222EFF, 0x22222EFF);
+    const glm::vec2 nameSize {nameRowSize()};
+    renderer->drawRect(namePosition.x, namePosition.y, nameSize.x, nameSize.y, 0x22222EFF,
+                       0x22222EFF);
     if (mFocus == 0 && !mReadOnly) {
-        renderer->drawRect(namePosition.x, namePosition.y, mWidth - 2.0f * namePosition.x,
-                           3.0f, sHighlightColor, sHighlightColor);
-        renderer->drawRect(namePosition.x, namePosition.y + 41.0f,
-                           mWidth - 2.0f * namePosition.x, 3.0f, sHighlightColor,
+        renderer->drawRect(namePosition.x, namePosition.y, nameSize.x, border, sHighlightColor,
                            sHighlightColor);
+        renderer->drawRect(namePosition.x, namePosition.y + nameSize.y - border, nameSize.x,
+                           border, sHighlightColor, sHighlightColor);
     }
 
-    // Avatar tiles: a placeholder behind every image, then a focus border.
+    // Avatar tiles: a placeholder behind every image, then children, then the focus border.
+    const float size {tileSize()};
     for (std::size_t index {0}; index < mTiles.size(); ++index) {
         const glm::vec2 position {tilePosition(static_cast<int>(index))};
-        renderer->drawRect(position.x, position.y, sTileSize, sTileSize, sTileColor,
-                           sTileColor);
-        mTiles[index]->render(trans);
-        if (mFocus == static_cast<int>(index) + 1 && !mReadOnly) {
-            renderer->drawRect(position.x - 3.0f, position.y - 3.0f, sTileSize + 6.0f, 3.0f,
-                               sHighlightColor, sHighlightColor);
-            renderer->drawRect(position.x - 3.0f, position.y + sTileSize, sTileSize + 6.0f,
-                               3.0f, sHighlightColor, sHighlightColor);
-            renderer->drawRect(position.x - 3.0f, position.y, 3.0f, sTileSize,
-                               sHighlightColor, sHighlightColor);
-            renderer->drawRect(position.x + sTileSize, position.y, 3.0f, sTileSize,
-                               sHighlightColor, sHighlightColor);
-        }
+        renderer->drawRect(position.x, position.y, size, size, sTileColor, sTileColor);
     }
 
     GuiComponent::render(trans);
+
+    if (mFocus >= 1 && mFocus <= static_cast<int>(mTiles.size()) && !mReadOnly) {
+        const glm::vec2 position {tilePosition(mFocus - 1)};
+        renderer->setMatrix(trans);
+        renderer->drawRect(position.x - border, position.y - border, size + 2.0f * border, border,
+                           sHighlightColor, sHighlightColor);
+        renderer->drawRect(position.x - border, position.y + size, size + 2.0f * border, border,
+                           sHighlightColor, sHighlightColor);
+        renderer->drawRect(position.x - border, position.y, border, size, sHighlightColor,
+                           sHighlightColor);
+        renderer->drawRect(position.x + size, position.y, border, size, sHighlightColor,
+                           sHighlightColor);
+    }
 }
 
 std::vector<HelpPrompt> GuiProfile::getHelpPrompts()

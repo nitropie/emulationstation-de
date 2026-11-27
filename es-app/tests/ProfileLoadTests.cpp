@@ -229,7 +229,7 @@ namespace
         const std::string home {(appdata.parent_path() / "home").string()};
         writeFile(catalog,
                   "{\"version\": 1, \"default\": \"" + std::string {sProfileId} +
-                      "\", \"libraryRoot\": \"" + (session / "library").string() +
+                      "\", \"libraryRoot\": \"" + appdata.string() +
                       "\", \"avatarManifest\": \"" + avatars.string() +
                       "\", \"profiles\": [{\"id\": \"" + std::string {sProfileId} +
                       "\", \"metadata\": \"" + metadata.string() + "\", \"home\": \"" + home +
@@ -487,5 +487,54 @@ TEST_CASE(collectionSystemsOwnNoStore)
                            false};
     EXPECT(collection.personalStore() == nullptr);
 
+    leaveProfileMode();
+}
+
+TEST_CASE(profileLoadReadsGamelistFromCatalogLibraryRootWhenAppdataGamelistsIsEmpty)
+{
+    Fixture fixture;
+    const fs::path separateLibrary {fixture.root / "shared-library"};
+    writeFile(separateLibrary / "gamelists" / "snes" / "gamelist.xml", testData("gamelist.xml"));
+    fs::remove_all(fixture.appdata / "gamelists");
+    fs::remove_all(fixture.appdata / "profile-state");
+    fs::create_directories(fixture.appdata / "profile-state");
+
+    const fs::path session {fixture.root / "separate-session"};
+    fs::create_directories(session);
+    const fs::path metadata {session / "profile.json"};
+    const fs::path avatars {session / "avatars.json"};
+    const fs::path catalog {session / "catalog.json"};
+    const std::string home {(fixture.appdata.parent_path() / "home").string()};
+
+    writeFile(metadata, "{\"schema\": \"nitropie.profile\", \"version\": 1, \"id\": \"" +
+                            std::string {sProfileId} +
+                            "\", \"displayName\": \"David\", \"avatar\": \"dog\"}\n");
+    writeFile(avatars, "{\"version\": 1, \"default\": \"dog\", \"avatars\": [{\"id\": "
+                       "\"dog\", \"file\": \"dog.png\", \"label\": \"Dog\"}]}\n");
+    writeFile(catalog,
+              "{\"version\": 1, \"default\": \"" + std::string {sProfileId} +
+                  "\", \"libraryRoot\": \"" + separateLibrary.string() +
+                  "\", \"avatarManifest\": \"" + avatars.string() +
+                  "\", \"profiles\": [{\"id\": \"" + std::string {sProfileId} +
+                  "\", \"metadata\": \"" + metadata.string() + "\", \"home\": \"" + home +
+                  "\", \"appdata\": \"" + fixture.appdata.string() + "\", \"saves\": \"" + home +
+                  "/saves\", \"xdgConfigHome\": \"" + home + "/.config\"" +
+                  ", \"xdgDataHome\": \"" + home + "/.local/share\"" +
+                  ", \"xdgStateHome\": \"" + home + "/.local/state\"" +
+                  ", \"xdgCacheHome\": \"" + home + "/.cache\"}]}\n");
+
+    setenv("NITROPIE_PROFILE_CATALOG", catalog.c_str(), 1);
+    setenv("NITROPIE_PROFILE_ID", sProfileId, 1);
+    ProfileMode::initialize();
+
+    SystemData* system {loadSystem(fixture)};
+    FileData* first {findNode(*system, "First Game (USA).sfc")};
+    EXPECT(first != nullptr);
+    if (first != nullptr) {
+        EXPECT(first->metadata.get("name") == "First Game");
+        EXPECT(first->metadata.get("desc") == "First fixture game.");
+        EXPECT(first->metadata.get("favorite") == "false");
+    }
+    delete system;
     leaveProfileMode();
 }

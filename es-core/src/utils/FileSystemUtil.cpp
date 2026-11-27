@@ -452,7 +452,6 @@ namespace Utils
             return preferredPath;
         }
 
-
         std::string getGenericPath(const std::string& path)
         {
             std::string genericPath {path};

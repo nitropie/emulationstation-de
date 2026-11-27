@@ -1203,6 +1203,9 @@ TEST_CASE(wifiSelectErrorDuringPasswordAttemptRequestsRetry)
     EXPECT(FakeWpaSupplicantServer::waitFor(
         [&fixture] { return !fixture.snapshot()->lastError.empty(); }));
 
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().removeNetwork >= 1; }));
+
     const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
     EXPECT(calls.addNetwork == 1);
     EXPECT(calls.selectNetwork == 1);
@@ -1233,6 +1236,9 @@ TEST_CASE(wifiDropDuringPasswordAttemptRequestsRetry)
 
     EXPECT(FakeWpaSupplicantServer::waitFor(
         [&fixture] { return !fixture.snapshot()->lastError.empty(); }));
+
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().removeNetwork >= 1; }));
 
     const FakeWpaSupplicantServer::Calls calls {fixture.server.calls()};
     EXPECT(calls.addNetwork == 1);
@@ -1296,6 +1302,9 @@ TEST_CASE(wifiOpenNetworkFailureDoesNotRequestPasswordRetry)
     const std::shared_ptr<const WifiSnapshot> snapshot {fixture.snapshot()};
     EXPECT(snapshot->failedSsid.empty());
     EXPECT(!snapshot->lastErrorNeedsPasswordRetry);
+    EXPECT(FakeWpaSupplicantServer::waitFor(
+        [&fixture] { return fixture.server.calls().removeNetwork >= 1; }));
+
     EXPECT(fixture.server.calls().removeNetwork == 1);
     EXPECT(fixture.server.calls().saveConfig == 0);
 }

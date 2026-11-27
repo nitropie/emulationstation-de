@@ -20,6 +20,27 @@
 #include <functional>
 #include <unordered_map>
 
+// The launch-command path variables. The substitutions are pure string operations so the
+// expansion can be tested without a settings singleton or a filesystem.
+namespace FileDataDetail
+{
+    // Substitutes %ROM%, %BASENAME% and %FILENAME%. `rom` is already escaped (or is the Exec line
+    // of a desktop file); the names are escaped here when `escapeNames` is set, which the POSIX
+    // launch path does and Windows does not.
+    std::string substituteFileVariables(const std::string& command,
+                                        const std::string& rom,
+                                        const std::string& baseName,
+                                        const std::string& fileName,
+                                        const bool escapeNames);
+
+    // Substitutes %GAMEDIR% (escaped) and %GAMEDIRRAW% (raw). `windowsSeparators` converts the raw
+    // value to backslash separators. Kept apart from substituteFileVariables() because the Windows
+    // launch path counts quotation marks between the two groups of variables.
+    std::string substituteGameDirectoryVariables(const std::string& command,
+                                                 const std::string& gameDirectory,
+                                                 const bool windowsSeparators);
+} // namespace FileDataDetail
+
 enum FileType {
     GAME = 1, // Cannot have children.
     FOLDER = 2,
@@ -170,6 +191,10 @@ protected:
     std::string mSortTypeString = "";
 
 private:
+    // The first existing media file of one media category for this game, or an empty string.
+    const std::string findMediaFile(const std::string& subdirectory,
+                                    const std::vector<std::string>& extensions) const;
+
     FileType mType;
     std::string mPath;
     SystemEnvironmentData* mEnvData;

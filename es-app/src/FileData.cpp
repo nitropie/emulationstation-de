@@ -39,6 +39,40 @@
 #include <assert.h>
 #include <regex>
 
+std::string FileDataDetail::substituteFileVariables(const std::string& command,
+                                                    const std::string& rom,
+                                                    const std::string& baseName,
+                                                    const std::string& fileName,
+                                                    const bool escapeNames)
+{
+    std::string expanded {command};
+
+    expanded = Utils::String::replace(expanded, "%ROM%", rom);
+    expanded = Utils::String::replace(
+        expanded, "%BASENAME%",
+        escapeNames ? Utils::FileSystem::getEscapedPath(baseName) : baseName);
+    expanded = Utils::String::replace(
+        expanded, "%FILENAME%",
+        escapeNames ? Utils::FileSystem::getEscapedPath(fileName) : fileName);
+
+    return expanded;
+}
+
+std::string FileDataDetail::substituteGameDirectoryVariables(const std::string& command,
+                                                             const std::string& gameDirectory,
+                                                             const bool windowsSeparators)
+{
+    std::string expanded {command};
+    const std::string escapedDirectory {Utils::FileSystem::getEscapedPath(gameDirectory)};
+    const std::string rawDirectory {
+        windowsSeparators ? Utils::String::replace(gameDirectory, "/", "\\") : gameDirectory};
+
+    expanded = Utils::String::replace(expanded, "%GAMEDIR%", escapedDirectory);
+    expanded = Utils::String::replace(expanded, "%GAMEDIRRAW%", rawDirectory);
+
+    return expanded;
+}
+
 FileData::FileData(FileType type,
                    const std::string& path,
                    SystemEnvironmentData* envData,
@@ -340,26 +374,38 @@ const std::string FileData::getMediaDirectory()
     return mediaDirPath;
 }
 
-const std::string FileData::getMediafilePath(const std::string& subdirectory) const
+const std::string FileData::findMediaFile(const std::string& subdirectory,
+                                          const std::vector<std::string>& extensions) const
 {
     std::string subFolders;
 
-    // Extract possible subfolders from the path.
-    if (mEnvData->mStartPath != "")
-        subFolders =
-            Utils::String::replace(Utils::FileSystem::getParent(mPath), mEnvData->mStartPath, "");
+    // Extract the subfolders of the game file below the system root. A directory boundary is
+    // required, so a sibling such as a start path prefix match does not contribute anything.
+    if (mEnvData->mStartPath != "") {
+        bool contains {false};
+        const std::string relative {Utils::FileSystem::removeCommonPath(
+            Utils::FileSystem::getParent(mPath), mEnvData->mStartPath, contains)};
+
+        if (contains)
+            subFolders = "/" + relative;
+    }
 
     const std::string tempPath {getMediaDirectory() + mSystemName + "/" + subdirectory +
                                 subFolders + "/" + getDisplayName()};
 
-    // Look for an image file in the media directory.
-    for (auto& extension : sImageExtensions) {
+    // Look for media in the media directory.
+    for (const std::string& extension : extensions) {
         const std::string mediaPath {tempPath + extension};
         if (Utils::FileSystem::exists(mediaPath))
             return mediaPath;
     }
 
     return "";
+}
+
+const std::string FileData::getMediafilePath(const std::string& subdirectory) const
+{
+    return findMediaFile(subdirectory, sImageExtensions);
 }
 
 const std::string FileData::getImagePath() const
@@ -446,47 +492,12 @@ const std::string FileData::getCustomImagePath() const
 
 const std::string FileData::getVideoPath() const
 {
-    std::string subFolders;
-
-    // Extract possible subfolders from the path.
-    if (mEnvData->mStartPath != "")
-        subFolders =
-            Utils::String::replace(Utils::FileSystem::getParent(mPath), mEnvData->mStartPath, "");
-
-    const std::string tempPath {getMediaDirectory() + mSystemName + "/videos" + subFolders + "/" +
-                                getDisplayName()};
-
-    // Look for media in the media directory.
-    for (auto& extension : sVideoExtensions) {
-        const std::string mediaPath {tempPath + extension};
-        if (Utils::FileSystem::exists(mediaPath))
-            return mediaPath;
-    }
-
-    return "";
+    return findMediaFile("videos", sVideoExtensions);
 }
 
 const std::string FileData::getManualPath() const
 {
-    const std::vector<std::string> extList {".pdf"};
-    std::string subFolders;
-
-    // Extract possible subfolders from the path.
-    if (mEnvData->mStartPath != "")
-        subFolders =
-            Utils::String::replace(Utils::FileSystem::getParent(mPath), mEnvData->mStartPath, "");
-
-    const std::string tempPath {getMediaDirectory() + mSystemName + "/manuals" + subFolders + "/" +
-                                getDisplayName()};
-
-    // Look for manuals in the media directory.
-    for (size_t i {0}; i < extList.size(); ++i) {
-        std::string mediaPath {tempPath + extList[i]};
-        if (Utils::FileSystem::exists(mediaPath))
-            return mediaPath;
-    }
-
-    return "";
+    return findMediaFile("manuals", {".pdf"});
 }
 
 const std::vector<FileData*>& FileData::getChildrenListToDisplay()
@@ -1140,6 +1151,8 @@ void FileData::launchGame(const std::string& selectedLabel)
 
     std::string commandRaw {command};
     std::string romPath {Utils::FileSystem::getEscapedPath(mPath)};
+    // The unescaped path, which the launch variables that are not shell-escaped are derived from.
+    std::string romPathRaw {mPath};
     std::string baseName {Utils::FileSystem::getStem(mPath)};
     std::string romRaw {Utils::FileSystem::getPreferredPath(mPath)};
 #if !defined(_WIN64)
@@ -1159,13 +1172,14 @@ void FileData::launchGame(const std::string& selectedLabel)
 #else
                 romPath = Utils::FileSystem::getEscapedPath(file);
 #endif
+                romPathRaw = file;
                 baseName = baseName.substr(0, baseName.find("."));
                 break;
             }
         }
     }
 
-    const std::string fileName {baseName + Utils::FileSystem::getExtension(romPath)};
+    const std::string fileName {baseName + Utils::FileSystem::getExtension(romPathRaw)};
     const std::string esPath {Utils::FileSystem::getExePath()};
 
 #if defined(__ANDROID__)
@@ -1746,10 +1760,9 @@ void FileData::launchGame(const std::string& selectedLabel)
 
             startDirectory = Utils::String::replace(
                 startDirectory, "%GAMEDIR%",
-                Utils::FileSystem::getParent(Utils::String::replace(romPath, "\"", "")));
+                Utils::FileSystem::getParent(romPathRaw));
 
-            startDirectory = Utils::String::replace(startDirectory, "%GAMEENTRYDIR%",
-                                                    Utils::String::replace(romPath, "\"", ""));
+            startDirectory = Utils::String::replace(startDirectory, "%GAMEENTRYDIR%", romPathRaw);
 #else
             startDirectory = Utils::String::replace(
                 startDirectory, "%EMUDIR%",
@@ -1757,10 +1770,9 @@ void FileData::launchGame(const std::string& selectedLabel)
 
             startDirectory = Utils::String::replace(
                 startDirectory, "%GAMEDIR%",
-                Utils::FileSystem::getParent(Utils::String::replace(romPath, "\\", "")));
+                Utils::FileSystem::getParent(romPathRaw));
 
-            startDirectory = Utils::String::replace(startDirectory, "%GAMEENTRYDIR%",
-                                                    Utils::String::replace(romPath, "\\", ""));
+            startDirectory = Utils::String::replace(startDirectory, "%GAMEENTRYDIR%", romPathRaw);
 #endif
             if (!Utils::FileSystem::isDirectory(startDirectory)) {
                 Utils::FileSystem::createDirectory(startDirectory);
@@ -1851,9 +1863,7 @@ void FileData::launchGame(const std::string& selectedLabel)
             }
             else {
                 if (injectFile.size() < 3 || !(injectFile[1] == ':' && injectFile[2] == '/'))
-                    injectFile =
-                        Utils::FileSystem::getParent(Utils::String::replace(romPath, "\"", "")) +
-                        "/" + injectFile;
+                    injectFile = Utils::FileSystem::getParent(romPathRaw) + "/" + injectFile;
             }
             injectFile = Utils::String::replace(injectFile, "/", "\\");
 #else
@@ -1865,9 +1875,7 @@ void FileData::launchGame(const std::string& selectedLabel)
             }
             else {
                 if (injectFile.front() != '/')
-                    injectFile =
-                        Utils::FileSystem::getParent(Utils::String::replace(romPath, "\\", "")) +
-                        "/" + injectFile;
+                    injectFile = Utils::FileSystem::getParent(romPathRaw) + "/" + injectFile;
             }
 #endif
             if (Utils::FileSystem::isRegularFile(injectFile) ||
@@ -1937,9 +1945,8 @@ void FileData::launchGame(const std::string& selectedLabel)
 #if !defined(_WIN64)
 #if defined(__APPLE__)
     if (isShortcut) {
-        if (Utils::FileSystem::exists(Utils::String::replace(romPath, "\\", ""))) {
-            LOG(LogInfo) << "Opening app or alias file \""
-                         << Utils::String::replace(romPath, "\\", "") << "\"";
+        if (Utils::FileSystem::exists(romPathRaw)) {
+            LOG(LogInfo) << "Opening app or alias file \"" << romPathRaw << "\"";
             command = Utils::String::replace(command, emulator.first, "open -W -a");
         }
         else {
@@ -1956,14 +1963,13 @@ void FileData::launchGame(const std::string& selectedLabel)
     if (isShortcut) {
         // Note that the following is not an attempt to implement the entire FreeDesktop standard
         // for .desktop files, for example argument parsing is not really usable in this context.
-        if (Utils::FileSystem::exists(Utils::String::replace(romPath, "\\", "")) &&
-            !Utils::FileSystem::isDirectory(Utils::String::replace(romPath, "\\", ""))) {
-            LOG(LogInfo) << "Parsing desktop file \"" << Utils::String::replace(romPath, "\\", "")
-                         << "\"";
+        if (Utils::FileSystem::exists(romPathRaw) &&
+            !Utils::FileSystem::isDirectory(romPathRaw)) {
+            LOG(LogInfo) << "Parsing desktop file \"" << romPathRaw << "\"";
             bool validFile {false};
             bool execEntry {false};
             std::ifstream desktopFileStream;
-            desktopFileStream.open(Utils::String::replace(romPath, "\\", ""));
+            desktopFileStream.open(romPathRaw);
             for (std::string line; getline(desktopFileStream, line);) {
                 // Some non-standard .desktop files add a leading line such as
                 // "#!/usr/bin/env xdg-open" and some lines may also be indented by
@@ -2010,6 +2016,10 @@ void FileData::launchGame(const std::string& selectedLabel)
                     }
                     romPath = Utils::String::replace(romPath, "%%", "%");
                     romPath = Utils::String::trim(romPath);
+                    // The Exec line replaces the emulator command, so the raw form of the launch
+                    // path is the unescaped Exec text from here on, exactly as the downstream
+                    // %GAMEDIR% derivation has always read it.
+                    romPathRaw = Utils::String::replace(romPath, "\\", "");
                     command = Utils::String::replace(command, emulator.first, "");
                     execEntry = true;
                 }
@@ -2035,10 +2045,14 @@ void FileData::launchGame(const std::string& selectedLabel)
 #endif
 
 #if !defined(__ANDROID__)
-    // Replace the remaining variables with their actual values.
-    command = Utils::String::replace(command, "%ROM%", romPath);
-    command = Utils::String::replace(command, "%BASENAME%", baseName);
-    command = Utils::String::replace(command, "%FILENAME%", fileName);
+    // Replace the remaining variables with their actual values. On Windows the names are
+    // substituted verbatim; elsewhere they are shell-escaped like the ROM path, as both end up
+    // inside the command line.
+#if defined(_WIN64)
+    command = FileDataDetail::substituteFileVariables(command, romPath, baseName, fileName, false);
+#else
+    command = FileDataDetail::substituteFileVariables(command, romPath, baseName, fileName, true);
+#endif
     command = Utils::String::replace(command, "%ROMRAW%", romRaw);
 #if !defined(_WIN64)
     command = Utils::String::replace(command, "%ROMRAWWIN%", romRawWindows);
@@ -2174,8 +2188,7 @@ void FileData::launchGame(const std::string& selectedLabel)
                         extraValue = Utils::String::replace(extraValue, "%QUOTATION%", "\\\"");
                         extraValue =
                             Utils::String::replace(extraValue, "%GAMEDIRRAW%",
-                                                   Utils::FileSystem::getParent(
-                                                       Utils::String::replace(romPath, "\\", "")));
+                                                   Utils::FileSystem::getParent(romPathRaw));
                         extraValue =
                             Utils::String::replace(extraValue, "%ROMPATHRAW%", getROMDirectory());
                         extraValue = Utils::String::replace(extraValue, "%ROMRAW%", romRaw);
@@ -2221,24 +2234,15 @@ void FileData::launchGame(const std::string& selectedLabel)
     command = Utils::String::replace(command, "%EMUDIR%",
                                      Utils::FileSystem::getEscapedPath(Utils::FileSystem::getParent(
                                          Utils::String::replace(emulator.first, "\"", ""))));
-    command = Utils::String::replace(command, "%GAMEDIR%",
-                                     Utils::FileSystem::getEscapedPath(Utils::FileSystem::getParent(
-                                         Utils::String::replace(romPath, "\"", ""))));
-    command = Utils::String::replace(
-        command, "%GAMEDIRRAW%",
-        Utils::String::replace(
-            Utils::FileSystem::getParent(Utils::String::replace(romPath, "\"", "")), "/", "\\"));
+    command = FileDataDetail::substituteGameDirectoryVariables(
+        command, Utils::FileSystem::getParent(romPathRaw), true);
 #else
     command = Utils::String::replace(command, "%ESPATH%", Utils::FileSystem::getExePath());
     command = Utils::String::replace(command, "%EMUDIR%",
                                      Utils::FileSystem::getEscapedPath(Utils::FileSystem::getParent(
                                          Utils::String::replace(emulator.first, "\\", ""))));
-    command = Utils::String::replace(command, "%GAMEDIR%",
-                                     Utils::FileSystem::getEscapedPath(Utils::FileSystem::getParent(
-                                         Utils::String::replace(romPath, "\\", ""))));
-    command = Utils::String::replace(
-        command, "%GAMEDIRRAW%",
-        Utils::FileSystem::getParent(Utils::String::replace(romPath, "\\", "")));
+    command = FileDataDetail::substituteGameDirectoryVariables(
+        command, Utils::FileSystem::getParent(romPathRaw), false);
 #endif
 
     // Trim any leading and trailing whitespace characters as they could cause launch issues.

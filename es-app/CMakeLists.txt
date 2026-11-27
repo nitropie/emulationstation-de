@@ -500,6 +500,8 @@ if(BUILD_TESTS)
                    ${CMAKE_CURRENT_SOURCE_DIR}/../es-core/tests/TestMain.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/GamelistSplitTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/GamelistPathTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/LaunchCommandTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/MediaLookupTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileLoadTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileSaveTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEnvironment.cpp

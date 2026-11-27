@@ -420,7 +420,7 @@ void Settings::setDefaults()
                                                ViewTransitionAnimation::INSTANT};
 }
 
-void Settings::saveFile()
+bool Settings::saveFile()
 {
     const std::string path {Utils::FileSystem::getAppDataDirectory() + "/settings/es_settings.xml"};
 
@@ -441,13 +441,14 @@ void Settings::saveFile()
     }
 
 #if defined(_WIN64)
-    doc.save_file(Utils::String::stringToWideString(path).c_str());
+    const bool saved {doc.save_file(Utils::String::stringToWideString(path).c_str())};
 #else
-    doc.save_file(path.c_str());
+    const bool saved {doc.save_file(path.c_str())};
 #endif
 
     Scripting::fireEvent("config-changed");
     Scripting::fireEvent("settings-changed");
+    return saved;
 }
 
 void Settings::loadFile()

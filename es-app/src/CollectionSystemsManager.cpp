@@ -133,7 +133,7 @@ void CollectionSystemsManager::deinit(const bool shutdown)
         delete mCollectionEnvData;
 }
 
-void CollectionSystemsManager::saveCustomCollection(SystemData* sys)
+bool CollectionSystemsManager::saveCustomCollection(SystemData* sys)
 {
 #if defined(_WIN64)
     std::string rompath {Utils::String::replace(FileData::getROMDirectory(), "\\", "/")};
@@ -208,10 +208,11 @@ void CollectionSystemsManager::saveCustomCollection(SystemData* sys)
             configFileOut << (*it) << std::endl;
 
         configFileOut.close();
+        return configFileOut.good();
     }
-    else {
-        LOG(LogError) << "Couldn't find collection to save: " << name;
-    }
+
+    LOG(LogError) << "Couldn't find collection to save: " << name;
+    return false;
 }
 
 void CollectionSystemsManager::loadCollectionSystems()

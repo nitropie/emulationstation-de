@@ -251,6 +251,22 @@ bool ProfileMode::save(std::string& error)
     return true;
 }
 
+bool ProfileMode::hasPendingWrites()
+{
+    if (!sSession.active())
+        return false;
+
+    if (sMetadata != nullptr && sMetadata->hasPendingWrites())
+        return true;
+
+    for (const auto& entry : sStores) {
+        if (entry.second != nullptr && entry.second->hasPendingWrites())
+            return true;
+    }
+
+    return false;
+}
+
 std::vector<std::pair<std::string, std::string>> ProfileMode::flushStores()
 {
     std::vector<std::pair<std::string, std::string>> failures;

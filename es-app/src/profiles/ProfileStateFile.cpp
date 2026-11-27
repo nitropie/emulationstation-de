@@ -94,6 +94,41 @@ namespace
 #endif
         }
 
+        bool writeNewFile(const std::string& path, const std::string& contents) override
+        {
+#if defined(_WIN64)
+            FILE* file {fopen(path.c_str(), "wbx")};
+            if (file == nullptr)
+                return false;
+
+            const bool written {fwrite(contents.data(), 1, contents.size()) ==
+                                contents.size()};
+            const bool flushed {fflush(file) == 0};
+            fclose(file);
+            return written && flushed;
+#else
+            const int descriptor {
+                open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0644)};
+            if (descriptor < 0)
+                return false;
+
+            std::size_t written {0};
+            while (written < contents.size()) {
+                const ssize_t result {
+                    ::write(descriptor, contents.data() + written, contents.size() - written)};
+                if (result <= 0) {
+                    close(descriptor);
+                    std::remove(path.c_str());
+                    return false;
+                }
+                written += static_cast<std::size_t>(result);
+            }
+
+            close(descriptor);
+            return true;
+#endif
+        }
+
         bool syncFile(const std::string& path) override
         {
 #if defined(_WIN64)

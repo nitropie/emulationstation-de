@@ -32,6 +32,9 @@ namespace ProfileState
 
         virtual ReadStatus readFile(const std::string& path, std::string& contents) = 0;
         virtual bool writeFile(const std::string& path, const std::string& contents) = 0;
+        // Creates a new file and fails when it already exists (O_CREAT | O_EXCL). The switch
+        // request writer uses this so a leftover temp file is never silently reused.
+        virtual bool writeNewFile(const std::string& path, const std::string& contents) = 0;
         // Flushes one file to stable storage.
         virtual bool syncFile(const std::string& path) = 0;
         // Atomically replaces `to` with `from`.

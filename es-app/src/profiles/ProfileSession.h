@@ -72,8 +72,11 @@ namespace ProfileSession
         ProfileState::FileOperations& files = ProfileState::systemFileOperations());
 
     // Parses catalog bytes and selects one profile. Used by the environment resolver and by
-    // tests.
+    // tests. An empty profile id parses the catalog without selecting a profile.
     Context fromCatalog(const std::string& catalogBytes, const std::string& profileId);
+
+    // Parses catalog bytes without selecting a profile; chooser mode has no profile identity.
+    bool readCatalog(const std::string& catalogBytes, Catalog& catalog, std::string& error);
 
     // True for a canonical lowercase UUIDv4 (design section 4).
     bool isUuidV4(const std::string& text);

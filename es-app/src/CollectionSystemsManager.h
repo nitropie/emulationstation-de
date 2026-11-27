@@ -77,7 +77,9 @@ class CollectionSystemsManager
 {
 public:
     static CollectionSystemsManager* getInstance();
-    void saveCustomCollection(SystemData* sys);
+    // Writes one custom collection file. Returns false when the file could not be written,
+    // so the profile switch flush gate can report the failure instead of dropping it.
+    bool saveCustomCollection(SystemData* sys);
 
     // Clean up all systems, called during application shutdown and ROM directory rescan.
     void deinit(const bool shutdown);

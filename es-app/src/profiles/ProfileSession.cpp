@@ -174,6 +174,11 @@ ProfileSession::Context ProfileSession::fromCatalog(const std::string& catalogBy
         return context;
     }
 
+    // An empty id means "catalog only": the chooser has no profile identity but still needs the
+    // declared profile ids to validate its selection.
+    if (profileId.empty())
+        return context;
+
     if (!isUuidV4(profileId)) {
         context.mError = "the profile id \"" + profileId + "\" is not a canonical UUIDv4";
         return context;
@@ -189,6 +194,19 @@ ProfileSession::Context ProfileSession::fromCatalog(const std::string& catalogBy
 
     context.mError = "the profile \"" + profileId + "\" is not in the catalog";
     return context;
+}
+
+bool ProfileSession::readCatalog(const std::string& catalogBytes,
+                                 Catalog& catalog,
+                                 std::string& error)
+{
+    Context context {fromCatalog(catalogBytes, "")};
+    if (!context.error().empty()) {
+        error = context.error();
+        return false;
+    }
+    catalog = context.catalog();
+    return true;
 }
 
 ProfileSession::Context ProfileSession::fromEnvironment(ProfileState::FileOperations& files)

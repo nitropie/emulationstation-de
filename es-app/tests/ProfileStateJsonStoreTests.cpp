@@ -117,6 +117,11 @@ namespace
             return ProfileState::systemFileOperations().writeFile(path, contents);
         }
 
+        bool writeNewFile(const std::string& path, const std::string& contents) override
+        {
+            return ProfileState::systemFileOperations().writeNewFile(path, contents);
+        }
+
         bool syncFile(const std::string& path) override
         {
             return ProfileState::systemFileOperations().syncFile(path);

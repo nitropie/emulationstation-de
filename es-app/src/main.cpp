@@ -37,6 +37,7 @@
 #include "views/ViewController.h"
 
 #include "profiles/ProfileMode.h"
+#include "profiles/ProfileSwitch.h"
 
 #include "UiTestDriver.h"
 
@@ -592,6 +593,11 @@ void applicationLoop()
         UiTest::frame();
 
         renderer->swapBuffers();
+
+        // The first completed frame: the start view (or the unresolved-profile dialog) exists,
+        // so the supervisor may commit this profile.
+        ProfileSwitch::acknowledgeReady();
+
         Log::flush();
 #if !defined(__EMSCRIPTEN__)
     }
@@ -600,6 +606,10 @@ void applicationLoop()
 
 int main(int argc, char* argv[])
 {
+    // Read the switch environment and set FD_CLOEXEC on the readiness pipe before anything can
+    // spawn a process, so an emulator never inherits it.
+    ProfileSwitch::initialize();
+
     const auto applicationStartTime {std::chrono::system_clock::now()};
 
     std::locale::global(std::locale("C"));
@@ -1337,7 +1347,9 @@ int main(int argc, char* argv[])
     // Every open store is flushed, including stores whose SystemData was torn down earlier.
     // Reporting happens here because the window still exists; a failure is also logged.
     SystemData::captureAllPersonalStates();
-    for (const std::pair<std::string, std::string>& failure : ProfileMode::flushStores())
+    const std::vector<std::pair<std::string, std::string>> finalFlushFailures {
+        ProfileMode::flushStores()};
+    for (const std::pair<std::string, std::string>& failure : finalFlushFailures)
         SystemData::reportPersonalFlushFailure(failure.first, failure.second);
 
     while (window->peekGui() != ViewController::getInstance())
@@ -1363,6 +1375,12 @@ int main(int argc, char* argv[])
 
     Utils::Platform::processQuitMode();
 
+    // Never exit with the switch status after a failed final flush: the request must not
+    // outlive the data it promised, so ProfileSwitch removes it and returns a failure status.
+    const int exitCode {
+        ProfileSwitch::finalizeExitCode(Utils::Platform::quitExitCode(),
+                                        finalFlushFailures.empty())};
+
     LOG(LogInfo) << "ES-DE cleanly shutting down";
 
 #if defined(_WIN64)
@@ -1373,5 +1391,5 @@ int main(int argc, char* argv[])
     exit(0);
 #endif
 
-    return 0;
+    return exitCode;
 }

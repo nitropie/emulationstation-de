@@ -79,6 +79,7 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJson.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJsonStore.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateStore.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileSwitch.h
 )
 
 set(ES_SOURCES
@@ -151,6 +152,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateFile.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileStateJsonStore.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profiles/ProfileSwitch.cpp
 )
 
 if(WIN32)
@@ -513,6 +515,7 @@ if(BUILD_TESTS)
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/AvatarManifestTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileMetadataTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileSessionTests.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/ProfileSwitchTests.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/UiTestScriptTests.cpp)
     target_include_directories(es-app-tests PRIVATE
                                ${CMAKE_CURRENT_SOURCE_DIR}/src

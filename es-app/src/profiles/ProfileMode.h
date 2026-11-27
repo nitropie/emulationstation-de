@@ -64,6 +64,10 @@ namespace ProfileMode
     // Flushes M. Returns false and sets `error` when the write failed.
     bool save(std::string& error);
 
+    // True when any open store or the profile metadata file has staged changes that a switch
+    // would have to flush first.
+    bool hasPendingWrites();
+
     // Flushes every open personal-state store, in system order. Returns one entry per failed
     // store: the system name and the reason. Empty when every store is clean. This covers stores
     // whose SystemData was torn down earlier, for example by a rescan that removed a system.

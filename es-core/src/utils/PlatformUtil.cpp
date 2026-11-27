@@ -37,13 +37,21 @@
 
 #define MAX_RUNNING_COMMANDS 8
 inline static std::atomic<int> sRunningCommands {0};
+inline static std::function<int(const std::string&)> sShutdownCommandRunner;
 
 namespace Utils
 {
     namespace Platform
     {
+        void setShutdownCommandRunnerForTesting(std::function<int(const std::string&)> runner)
+        {
+            sShutdownCommandRunner = std::move(runner);
+        }
+
         int runRebootCommand()
         {
+            if (sShutdownCommandRunner)
+                return sShutdownCommandRunner("reboot");
 #if defined(__APPLE__)
             return 0;
 #elif defined(_WIN64)
@@ -59,6 +67,8 @@ namespace Utils
 
         int runPoweroffCommand()
         {
+            if (sShutdownCommandRunner)
+                return sShutdownCommandRunner("poweroff");
 #if defined(__APPLE__)
             return 0;
 #elif defined(_WIN64)
@@ -74,6 +84,8 @@ namespace Utils
 
         int runSuspendCommand()
         {
+            if (sShutdownCommandRunner)
+                return sShutdownCommandRunner("suspend");
 #if defined(__APPLE__)
             return 0;
 #elif defined(_WIN64)
@@ -480,9 +492,26 @@ namespace Utils
             return 0;
         }
 
+        int quitExitCode()
+        {
+            return sQuitMode == QuitMode::SWITCH_PROFILE ? SWITCH_PROFILE_EXIT_CODE : 0;
+        }
+
+        int runningCommands()
+        {
+            return sRunningCommands.load();
+        }
+
         void processQuitMode()
         {
             switch (sQuitMode) {
+                case QuitMode::SWITCH_PROFILE: {
+                    // A profile switch is not a shutdown: fire the usual quit event and run no
+                    // reboot, poweroff or suspend command.
+                    LOG(LogInfo) << "Switching profile";
+                    Scripting::fireEvent("quit");
+                    break;
+                }
                 case QuitMode::REBOOT: {
                     LOG(LogInfo) << "Rebooting system";
                     Scripting::fireEvent("reboot");
